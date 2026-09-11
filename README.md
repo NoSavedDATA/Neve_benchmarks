@@ -47,9 +47,9 @@ time neve neve_samples/all_in_one.nv
 
 | Language | Acc | Time | Backend |
 | :--- | :--- | :--- | :--- |
-| **Neve** | 65.46+-0.37 | 592s+-6s | Naive Kernel |
-| **Neve** | 65.46+-0.45 | 261s+-9 | Partial cuDNN |
-| **PyTorch** | 74.82+1.27 | 64s+-6 | cuDNN |
+| **Neve** | 65.46%+-0.37 | 592s+-6s | Naive Kernel |
+| **Neve** | 65.46%+-0.45 | 261s+-9s | Partial cuDNN |
+| **PyTorch** | 74.82%+1.27 | 64s+-6s | cuDNN |
 
 ---
 
