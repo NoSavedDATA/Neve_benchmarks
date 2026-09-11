@@ -1,0 +1,225 @@
+import frost
+import networks
+
+class cfg
+	int bs, num_workers, train_steps
+	array<int> inp_dim
+	ctor()
+		self.bs = 32
+		self.num_workers = 3
+		self.inp_dim = [3,32,32]
+		self.train_steps = 20000
+
+class Dataset
+    int batch_size, yield_ptr, _len, num_workers, epoch, steps
+    array<str> files
+	channel<int, 6> load_ch
+	tensor_cpu x, y
+	map<str, int> labels_map
+
+    ctor(i num_workers, str path)
+        self.batch_size = $cfg.bs
+        self.num_workers = num_workers
+            
+        self.files = glob(path)
+
+        self.yield_ptr = 0
+		self.epoch=0
+
+        self._len = self.files.size()
+        self.steps = self._len // $cfg.bs
+        self.shuf()
+
+		self.x = new tensor_cpu([num_workers, $cfg.bs], $cfg.inp_dim)
+		self.y = new tensor_cpu([num_workers, $cfg.bs], [1])
+		self.labels_map["airplane"] = 0
+		self.labels_map["automobile"] = 1
+		self.labels_map["bird"] = 2
+		self.labels_map["cat"] = 3
+		self.labels_map["deer"] = 4
+		self.labels_map["dog"] = 5
+		self.labels_map["frog"] = 6
+		self.labels_map["horse"] = 7
+		self.labels_map["ship"] = 8
+		self.labels_map["truck"] = 9
+
+    def int shuf()
+		self.files.shuffle()
+		0
+
+    def float terminate_workers()
+        print("Terminating ", self.num_workers, " workers")
+        self.load_ch.terminate()
+
+    def int increment_yield_ptr()
+		lock "yield"
+			if (self.yield_ptr + self.batch_size) <= (self._len/|self.batch_size)*self.batch_size - self.num_workers*self.batch_size*2
+				int ret = self.yield_ptr
+				self.yield_ptr = self.yield_ptr + self.batch_size
+			else
+				self.yield_ptr = 0
+				self.shuf()
+				self.epoch=self.epoch+1
+        return self.yield_ptr
+
+    def float getitem_w(i idx, i b)
+		lock "yield"
+			var aux = self.files[idx]
+
+		var img = self.x.at(b)
+		img.load_img(aux)
+
+		aux = aux.split('.')[0].split('_')[-1]
+
+		var y = self.y.at(b)
+		y[0]=self.labels_map[aux]
+
+    def float worker()
+        print("Start worker")
+        int yield_ptr, bs=self.batch_size
+		print("worker ", tid)
+
+        while self.load_ch.alive()
+			yield_ptr = self.increment_yield_ptr()
+
+			for b=0, b<bs
+				self.getitem_w(yield_ptr+b, b)
+				
+			self.load_ch <- tid
+			self.x.switch()
+			self.y.switch()
+
+    def tuple<gpu_tensor,gpu_tensor> batch()
+		int w <- self.load_ch
+
+		var x = self.x.load(w)
+		var y = self.y.load(w)
+		x = x.view([$cfg.bs, 3, 32, 32])
+
+        return x, y
+
+class ResidualModule
+	BatchNorm2d bn1, bn2, bn_skip
+	Conv2d c1, c2, c_skip
+	bool has_skip
+    ctor(int m, int n, int stride)
+		self.c1 = new Conv2d(m,n, 3,stride,1, "conv")
+		self.bn1 = new BatchNorm2d(n, 0.00001, 0.1)
+		self.c2 = new Conv2d(n,n, 3,1,1, "conv")
+		self.bn2 = new BatchNorm2d(n, 0.00001, 0.1)
+		self.has_skip = m!=n or stride>1
+		if self.has_skip
+			self.c_skip = new Conv2d(m,n, 1,stride,0, "conv") 
+			self.bn_skip = new BatchNorm2d(n, 0.00001, 0.1)
+    
+    def gpu_tensor forward(gpu_tensor x)
+        var z = x
+        x = self.c1.forward(x)
+		x = self.bn1.forward(x)
+        x = relu(x)
+
+        x = self.c2.forward(x)
+		x = self.bn2.forward(x)
+		x = relu(x)
+
+		if self.has_skip
+			z = self.c_skip.forward(z)
+			z = self.bn_skip.forward(z)
+		x += z
+        return x
+
+class ResidualBlock
+	ResidualModule b1, b2, b3
+	ctor(int m, int n, int stride)
+		self.b1 = new ResidualModule(m, n, stride)
+		self.b2 = new ResidualModule(n, n, 1)
+		self.b3 = new ResidualModule(n, n, 1)
+
+	def gpu_tensor forward(gpu_tensor x)
+		x = self.b1.forward(x)
+		x = self.b2.forward(x)
+		x = self.b3.forward(x)
+		return x
+
+class ResNet18
+	Conv2d c1
+	ResidualBlock b1, b2, b3
+	AvgPool2d pool
+	Linear l1
+	ctor()
+		self.c1 = new Conv2d(3,16, 3,1,1, "conv")
+		self.b1 = new ResidualBlock(16,16,1)
+		self.b2 = new ResidualBlock(16,32,2)
+		self.b3 = new ResidualBlock(32,64,2)
+		self.pool = new AvgPool2d(8,-1,0)
+
+		self.l1 = new Linear(64, 10, "xavu")
+	
+	def gpu_tensor forward(gpu_tensor x)
+		int bs = x.dims[0]
+		x = self.c1.forward(x)
+		x = self.b1.forward(x)
+		x = self.b2.forward(x)
+		x = self.b3.forward(x)
+
+		x = self.pool.forward(x)
+
+		x = x.view([bs,-1])
+		x = relu(x)
+		x = self.l1.forward(x)
+		return x
+
+def void train(ResNet18 model)
+	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/cifar/train/*.png")
+
+	AdamW optim(0.0001, 0.9, 0.98)
+	int steps = $cfg.train_steps
+
+	finish
+		asyncs $cfg.num_workers ds.worker()
+
+		[0..steps] i
+			print("i: ", i, " -- ", ds.yield_ptr)
+			gpu_tensor a, b
+			a, b = ds.batch()
+			var y_hat = model.forward(a)
+			ce_loss(y_hat, b)
+
+			$backprop.backward()
+			optim.step()
+		ds.terminate_workers()
+
+
+def void eval(ResNet18 model)
+
+	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/cifar/test/*.png")
+
+	var acc = new gpu_tensor([1],"zeros")
+
+	$backprop.on = false
+	int steps = ds.steps
+	finish
+		asyncs $cfg.num_workers ds.worker()
+
+		[0..steps] i
+			print("val ", i)
+			gpu_tensor a, b
+			a, b = ds.batch()
+			var y_hat = model.forward(a)
+			var eq_mask = y_hat.argmax()==b
+			var local_acc = eq_mask.mean()
+			acc += local_acc
+
+			tarena_reset()
+		ds.terminate_workers()
+
+	acc /= steps
+	print("Accuracy")
+	acc.print()
+
+main
+	start_timer()
+	ResNet18 model()
+	train(model)
+	eval(model)
+	end_timer()

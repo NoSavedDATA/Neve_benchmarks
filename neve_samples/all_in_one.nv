@@ -1,0 +1,1399 @@
+import frost
+
+# prototypes
+
+class cfg
+	int bs, num_workers, train_steps
+	array<int> inp_dim
+	ctor()
+		self.bs = 32
+		self.num_workers = 3
+		self.inp_dim = [3,32,32]
+		self.train_steps = 20000
+
+proto int sys cudaMalloc(any,i64)
+proto int sys cudaMallocHost(any,i64)
+proto int sys cudaMemcpy(any,any,i64,int)
+proto float_pp cumalloc(i64)
+proto float_cpu cumalloc_host(i64)
+
+operation float_cpu float_cpu_int_offby
+operation float[] float_pp_int_offby
+
+proto float_cpu device_to_host(float_pp,i64)
+proto float_cpu float_pp_cpu(float_pp,i64)
+proto int host_to_device(float_cpu,float_pp,i64)
+proto int float_cpu_print(float_cpu, array<int>)
+proto tuple<float_cpu, array<int>> load_image(str)
+
+proto float_pp float_cpu_cuda(float_cpu, int)
+proto float_pp float_cpu_cupool(float_cpu, int)
+
+proto bf16_pp bf16_cpu_cuda(bf16_cpu, int)
+proto bf16_cpu bf16_pp_cpu(bf16_pp,i64)
+proto int bf16_cpu_print(bf16_cpu, array<int>)
+proto int bf16_pp_save(bf16_pp, int, str)
+proto int bf16_cpu_save(bf16_cpu, int, str)
+
+operation bf16_cpu bf16_cpu_int_offby
+operation bf16[] bf16_pp_int_offby
+
+
+
+###########---------------- Warp Functions ----------------###########
+
+
+
+gpu float warpSum(float val)
+	val += shfl_sync(val, 16)
+	val += shfl_sync(val, 8)
+	val += shfl_sync(val, 4)
+	val += shfl_sync(val, 2)
+	val += shfl_sync(val, 1)
+	return val
+gpu int warpSum(int val)
+	val += shfl_sync(val, 16)
+	val += shfl_sync(val, 8)
+	val += shfl_sync(val, 4)
+	val += shfl_sync(val, 2)
+	val += shfl_sync(val, 1)
+	return val
+gpu float warpMax(float val)
+	val = max(val, shfl_sync(val, 16))
+	val = max(val, shfl_sync(val, 8))
+	val = max(val, shfl_sync(val, 4))
+	val = max(val, shfl_sync(val, 2))
+	val = max(val, shfl_sync(val, 1))
+	return val
+
+
+
+###########---------------- ReLU ----------------###########
+
+
+
+kernel void relu_kernel(float[] y, float[] x, int n)
+	int idx = bx*256 + tx
+	if idx>=n
+		return
+	if x[idx]>0
+		y[idx] = x[idx]
+	else
+		y[idx] = 0
+
+kernel void relu_backward_kernel(float[] y, float[] dx, float[] dy, int n)
+	int idx = bx*256 + tx
+	if idx>=n
+		return
+	if y[idx]>0
+		dx[idx] = dy[idx]
+	else
+		dx[idx] = 0
+
+
+def gpu_tensor relu(gpu_tensor x)
+	gpu_tensor ret = new gpu_tensor(x.dims, "zeros_pool")
+	launch [x.dims_prod/|256] [256] relu_kernel(
+							ret.ptr offby 0, x.ptr offby 0, x.dims_prod)
+
+	ret.shall_prop = x.shall_prop
+	if x.shall_prop
+		$backprop.register([x], [ret], "relu")
+	return ret
+
+def int relu_backward(array<gpu_tensor> inp, array<gpu_tensor> out, any module)
+	var x = inp[0]
+	launch [x.dims_prod/|256] [256] relu_backward_kernel(
+							out[0].ptr offby 0, x.getd() offby 0,
+							out[0].getd() offby 0, x.dims_prod)
+
+
+
+###########---------------- Tensor Ops ----------------###########
+
+
+
+def int add_backward(array<gpu_tensor> inp, array<gpu_tensor> out, any module)
+	var x = inp[0]
+	float_pp dx = x.getd(), dy = inp[1].getd()
+	var dout = out[0].getd()
+	acc_tensors(dx, dout, x.dims_prod)
+	acc_tensors(dy, dout, x.dims_prod)
+
+def int mma_backward(array<gpu_tensor> inp, array<gpu_tensor> out, any module)
+	var x = inp[0], y = inp[1]
+	int m=x.dims[0], n=x.dims[1], p=y.dims[0]
+	matmul_backward(x.ptr, inp[1].ptr,
+					x.getd(), y.getd(),
+					out[0].getd(), m, n, p)
+
+def int view_backward(array<gpu_tensor> inp, array<gpu_tensor> out, any module)
+	var x = inp[0]
+	float_pp dx = x.getd()
+	var dout = out[0].getd()
+	acc_tensors(dx, dout, x.dims_prod)
+
+
+
+def int ce_backward(array<gpu_tensor> inp, array<gpu_tensor> out, any module)
+	var y_hat = inp[0]
+	ce_backward_kernel(y_hat.getd(),
+					   y_hat.ptr, inp[1].ptr,
+					   y_hat.dims[0], y_hat.dims[1])
+
+def gpu_tensor softmax(gpu_tensor a)
+	gpu_tensor ret = new gpu_tensor(a.dims, "none")
+	float_pp probs = softmax_k(a.ptr, a.dims[0], a.dims[-1])
+	ret.ptr = probs
+	return ret
+
+def gpu_tensor +(gpu_tensor a, gpu_tensor b)
+	gpu_tensor ret = new gpu_tensor(a.dims, "none")
+	ret.ptr = add_tensors(a.ptr, b.ptr, a.dims_prod)
+
+	bool shall_prop = a.shall_prop or b.shall_prop
+	ret.shall_prop = shall_prop
+	if shall_prop
+		$backprop.register([a, b], [ret], "add")
+	return ret
+
+def gpu_tensor @(gpu_tensor a, gpu_tensor b)
+	int m = a.dims[0], n = a.dims[1], p = b.dims[0]
+
+	array<int> new_dims = [m, p]
+	gpu_tensor ret = new gpu_tensor(new_dims, "none")
+	ret.ptr = mma_tensors(a.ptr, b.ptr, m, n, p)
+
+	bool shall_prop = a.shall_prop or b.shall_prop
+	ret.shall_prop = shall_prop
+	if shall_prop
+		$backprop.register([a, b], [ret], "mma")
+	return ret
+
+
+kernel void tensor_eq_k(float[] z, float[] x, float[] y, int n)
+	int idx = bx*256 + tx
+	if idx<n
+		z[idx] = x[idx] == y[idx]
+
+def gpu_tensor ==(gpu_tensor a, gpu_tensor b)
+	gpu_tensor ret = new gpu_tensor(a.dims, "zeros")
+	int n = a.dims reduce *
+	launch [n/|256] [256] tensor_eq_k(ret.ptr offby 0,
+							a.ptr offby 0, b.ptr offby 0,
+							n)
+	return ret
+
+kernel void tensor_div_kernel(float[] z, float[] x, int y, int n)
+	int idx = bx*256 + tx
+	if idx<n
+		z[idx] = x[idx] / y
+
+
+def gpu_tensor /(gpu_tensor a, int b)
+	gpu_tensor ret = new gpu_tensor(a.dims, "zeros")
+	int n = a.dims reduce *
+	launch [n/|256] [256] tensor_div_kernel(ret.ptr offby 0,
+							a.ptr offby 0, b,
+							n)
+	return ret
+
+
+def gpu_tensor ce_loss(gpu_tensor a, gpu_tensor b)
+	gpu_tensor ret = new gpu_tensor(a.dims, "none")
+	ret.ptr = add_tensors(a.ptr, b.ptr, a.dims_prod)
+	bool shall_prop = a.shall_prop or b.shall_prop
+	ret.shall_prop = shall_prop
+	if shall_prop
+		$backprop.register([a, b], [ret], "ce")
+	return ret
+
+
+
+###########---------------- Dim Reduction Ops ----------------###########
+
+
+
+def tuple<array<int>,int,int> get_reduced_dims(array<int> dims)
+	int m, n
+	array<int> new_dims
+	if dims.size()==1
+		m = 1
+		n = dims[0]
+		new_dims = [1]
+	else
+		new_dims = dims[:-1]
+		m = new_dims reduce *
+		n = dims[-1]
+
+	return new_dims, m, n
+
+
+gpu tuple<float,int> warpArgmax_float(float val, int id)
+	float shfl_val = shfl_sync(val, 16)
+	int shfl_id = shfl_sync(id, 16)
+	if shfl_val>val
+		val = shfl_val
+		id = shfl_id
+	shfl_val = shfl_sync(val, 8)
+	shfl_id = shfl_sync(id, 8)
+	if shfl_val>val
+		val = shfl_val
+		id = shfl_id
+	shfl_val = shfl_sync(val, 4)
+	shfl_id = shfl_sync(id, 4)
+	if shfl_val>val
+		val = shfl_val
+		id = shfl_id
+	shfl_val = shfl_sync(val, 2)
+	shfl_id = shfl_sync(id, 2)
+	if shfl_val>val
+		val = shfl_val
+		id = shfl_id
+	shfl_val = shfl_sync(val, 1)
+	shfl_id = shfl_sync(id, 1)
+	if shfl_val>val
+		val = shfl_val
+		id = shfl_id
+	return val, id
+
+kernel void argmax_k(float[] y, float[] x, int m, int n)
+	var v = layout<float,m,n>(x)
+	
+	int row = bx*8 + warp
+
+	float maxval = -inf
+	int max_id = lane
+
+	[0..n/|32] j
+		int col = j*32+lane
+		float curval = -inf
+		int cur_id = -1
+		if row<m and col<n
+			curval = v[row, col]
+			cur_id = col
+
+		curval, cur_id = warpArgmax_float(curval, cur_id)
+		if curval>maxval
+			maxval = curval
+			max_id = cur_id
+	
+	if row<m
+		y[row] = max_id
+
+def gpu_tensor gpu_tensor_argmax(gpu_tensor x, int dim=-1)
+	int m, n
+	array<int> new_dims
+	new_dims, m, n = get_reduced_dims(x.dims)
+	gpu_tensor ret = new gpu_tensor(new_dims, "zeros")
+	launch [m/|8] [256] argmax_k(ret.ptr offby 0, x.ptr offby 0, m, n)
+	return ret
+
+kernel void mean_kernel(float[] y, float[] x, int m, int n)
+	var v = layout<float,m,n>(x)
+	
+	int row = bx*8 + warp
+	float sum = 0
+	[0..n/|32] i
+		float x_i = 0	
+		int col = i*32 + lane
+		if row<m and col<n
+			x_i = v[row, col]
+		sum += warpSum(x_i)
+
+	if row<m
+		y[row] = sum / n
+
+def gpu_tensor gpu_tensor_mean(gpu_tensor x, int dim=-1)
+	int m, n
+	array<int> new_dims
+	new_dims, m, n = get_reduced_dims(x.dims)
+	gpu_tensor ret = new gpu_tensor(new_dims, "zeros")
+	launch [m/|8] [256] mean_kernel(ret.ptr offby 0, x.ptr offby 0, m, n)
+	return ret
+
+
+
+###########---------------- AvgPool2d ----------------###########
+
+
+
+kernel void avgpool2d_forward_k(float[] y, float[] x, int n, int c, int h, int w, int out_h, int out_w, int ks, int stride, int padding)
+	int tid = bx * 256 + tx
+	int total = n * c * out_h * out_w
+
+	if tid >= total
+		return
+	int ow = tid % out_w
+	int tmp1 = tid // out_w
+	int oh = tmp1 % out_h
+	int tmp2 = tmp1 // out_h
+	int curr_c = tmp2 % c
+	int curr_n = tmp2 // c
+
+	float sum = 0
+	
+	[0..ks, 0..ks] kh, kw
+		int ih = oh * stride - padding + kh
+		int iw = ow * stride - padding + kw
+		
+		if ih >= 0 and ih < h and iw >= 0 and iw < w
+			int idx = curr_n * (c * h * w) + curr_c * (h * w) + ih * w + iw
+			sum += x[idx]
+				
+	y[tid] = sum / (ks * ks)
+
+kernel void avgpool2d_backward_k(float[] dx, float[] dy, int n, int c, int h, int w, int out_h, int out_w, int ks, int stride, int padding)
+	int tid = bx * 256 + tx
+	int total = n * c * h * w
+
+	if tid >= total
+		return
+
+	int iw = tid % w
+	int tmp1 = tid // w
+	int ih = tmp1 % h
+	int tmp2 = tmp1 // h
+	int curr_c = tmp2 % c
+	int curr_n = tmp2 // c
+
+	float grad = 0
+
+	[0..ks, 0..ks] kh, kw
+		int rem_h = (ih + padding - kh) % stride
+		int rem_w = (iw + padding - kw) % stride
+		
+		if rem_h == 0 and rem_w == 0
+			int oh = (ih + padding - kh) // stride
+			int ow = (iw + padding - kw) // stride
+			
+			if oh >= 0 and oh < out_h and ow >= 0 and ow < out_w
+				int dy_idx = curr_n * (c * out_h * out_w) + curr_c * (out_h * out_w) + oh * out_w + ow
+				grad += dy[dy_idx] / (ks * ks)
+	
+	dx[tid] = grad
+
+
+def int AvgPool2d_backward(array<gpu_tensor> inp, array<gpu_tensor> out, AvgPool2d y)
+	y.backprop(inp, out)
+
+
+class AvgPool2d
+	int ks, stride, padding
+
+	ctor(int ks, int stride=1, int padding=0)
+		self.ks = ks
+		self.stride = stride
+		self.padding = padding
+
+	def gpu_tensor forward(gpu_tensor x)
+
+		int b = x.dims[0], c = x.dims[1], h = x.dims[2], w = x.dims[3]
+
+		int out_h = (h - self.ks + 2*self.padding) // self.stride + 1
+		int out_w = (w - self.ks + 2*self.padding) // self.stride + 1
+
+		array<int> new_dims = [b,c,out_h,out_w]
+
+		gpu_tensor ret = new gpu_tensor(new_dims, "zeros")
+		
+		launch [ret.dims_prod/|256] [256] avgpool2d_forward_k(
+						ret.ptr offby 0, x.ptr offby 0,
+						b, c, h, w, out_h, out_w,
+						self.ks, self.stride, self.padding)
+
+		bool shall_prop = x.shall_prop
+		if shall_prop
+			$backprop.register_module([x], [ret], self, "avgpool2d")
+		ret.shall_prop = shall_prop
+
+		return ret
+		
+	def int backprop(array<gpu_tensor> inp, array<gpu_tensor> out)
+		var x = inp[0]
+		var dx = x.getd()
+		var dy = out[0].getd()
+		
+		int b = x.dims[0], c = x.dims[1], h = x.dims[2], w = x.dims[3]
+		int out_h = (h - self.ks + 2*self.padding) // self.stride + 1
+		int out_w = (w - self.ks + 2*self.padding) // self.stride + 1
+		
+		int total = b*c*h*w
+		
+		launch [total/|256] [256] avgpool2d_backward_k(
+							dx offby 0, dy offby 0,
+							b, c, h, w, out_h, out_w,
+						    self.ks, self.stride, self.padding)
+
+
+
+###########---------------- BatchNorm2d ----------------###########
+
+
+
+kernel void batchnorm2d_forward_shared_k(float[] y, float[] x, float[] r_mean, float[] r_var, float[] s_mean, float[] s_var, float[] weight, float[] bias, int n, int c, int h, int w, float eps, float momentum, bool training)
+	int c_idx = bx
+	if c_idx >= c
+		return
+
+	int num_elements = n * h * w
+	int hw = h * w
+	int iters = (num_elements + 255) // 256
+	
+	var smem_sum = layout<float, 256, smem>()
+	var smem_var = layout<float, 256, smem>()
+
+	float m = 0
+	float v = 0
+
+	if training
+		float local_sum = 0
+		for j = 0, j < iters
+			int i = j * 256 + tx
+			if i < num_elements
+				int curr_n = i // hw
+				int hw_idx = i % hw
+				int idx = curr_n * (c * hw) + c_idx * hw + hw_idx
+				local_sum += x[idx]
+		
+		smem_sum[tx] = local_sum
+		syncthreads()
+
+		int s = 128
+		for step = 0, step < 8
+			if tx < s
+				smem_sum[tx] += smem_sum[tx + s]
+			syncthreads()
+			s = s // 2
+		
+		if tx == 0
+			m = smem_sum[0] / num_elements
+			s_mean[c_idx] = m
+			smem_sum[0] = m 
+			
+		syncthreads()
+		m = smem_sum[0]
+
+		float local_var = 0
+		for j = 0, j < iters
+			int i = j * 256 + tx
+			if i < num_elements
+				int curr_n = i // hw
+				int hw_idx = i % hw
+				int idx = curr_n * (c * hw) + c_idx * hw + hw_idx
+				float diff = x[idx] - m
+				local_var += diff * diff
+				
+		smem_var[tx] = local_var
+		syncthreads()
+
+		s = 128
+		for step = 0, step < 8
+			if tx < s
+				smem_var[tx] += smem_var[tx + s]
+			syncthreads()
+			s = s // 2
+		
+		if tx == 0
+			v = smem_var[0] / num_elements
+			s_var[c_idx] = v
+			smem_var[0] = v
+			r_mean[c_idx] = (1 - momentum) * r_mean[c_idx] + momentum * m
+			r_var[c_idx] = (1 - momentum) * r_var[c_idx] + momentum * v
+			
+		syncthreads()
+		v = smem_var[0]
+	else
+		if tx == 0
+			smem_sum[0] = r_mean[c_idx]
+			smem_var[0] = r_var[c_idx]
+		syncthreads()
+		m = smem_sum[0]
+		v = smem_var[0]
+
+	float inv_std = 1.0 / sqrt(v + eps)
+	float gamma = weight[c_idx]
+	float beta = bias[c_idx]
+
+	for j = 0, j < iters
+		int i = j * 256 + tx
+		if i < num_elements
+			int curr_n = i // hw
+			int hw_idx = i % hw
+			int idx = curr_n * (c * hw) + c_idx * hw + hw_idx
+			float x_hat = (x[idx] - m) * inv_std
+			y[idx] = gamma * x_hat + beta
+
+kernel void batchnorm2d_backward_shared_k(float[] dx, float[] dy, float[] x, float[] s_mean, float[] s_var, float[] weight, float[] dw, float[] db, int n, int c, int h, int w, float eps, bool needs_input_grad)
+	int c_idx = bx
+	if c_idx >= c
+		return
+
+	int num_elements = n * h * w
+	int hw = h * w
+	int iters = (num_elements + 255) // 256
+	
+	float m = s_mean[c_idx]
+	float v = s_var[c_idx]
+	float inv_std = 1.0 / sqrt(v + eps)
+	float gamma = weight[c_idx]
+	
+	var smem_dw = layout<float, 256, smem>()
+	var smem_db = layout<float, 256, smem>()
+	
+	float local_dw = 0
+	float local_db = 0
+
+	for j = 0, j < iters
+		int i = j * 256 + tx
+		if i < num_elements
+			int curr_n = i // hw
+			int hw_idx = i % hw
+			int idx = curr_n * (c * hw) + c_idx * hw + hw_idx
+			
+			float d = dy[idx]
+			local_db += d
+			float x_hat = (x[idx] - m) * inv_std
+			local_dw += d * x_hat
+
+	smem_dw[tx] = local_dw
+	smem_db[tx] = local_db
+	syncthreads()
+
+	int s = 128
+	for step = 0, step < 8
+		if tx < s
+			smem_dw[tx] += smem_dw[tx + s]
+			smem_db[tx] += smem_db[tx + s]
+		syncthreads()
+		s = s // 2
+
+	if tx == 0
+		dw[c_idx] = smem_dw[0]
+		db[c_idx] = smem_db[0]
+
+	syncthreads()
+	float total_dw = smem_dw[0]
+	float total_db = smem_db[0]
+
+	if needs_input_grad
+		for j = 0, j < iters
+			int i = j * 256 + tx
+			if i < num_elements
+				int curr_n = i // hw
+				int hw_idx = i % hw
+				int idx = curr_n * (c * hw) + c_idx * hw + hw_idx
+				
+				float d = dy[idx]
+				float x_hat = (x[idx] - m) * inv_std
+				dx[idx] = (gamma * inv_std / num_elements) * (num_elements * d - total_db - x_hat * total_dw)
+
+
+def int BatchNorm2d_backward(array<gpu_tensor> inp, array<gpu_tensor> out, BatchNorm2d y)
+	y.backprop(inp, out)
+
+
+class BatchNorm2d
+	int num_features
+	float eps, momentum
+	bool training
+	gpu_tensor weight, bias
+	gpu_tensor running_mean, running_var
+	gpu_tensor saved_mean, saved_var
+
+	ctor(int num_features, float eps, float momentum)
+		self.num_features = num_features
+		self.eps = eps
+		self.momentum = momentum
+		self.training = true
+		
+		array<int> c_dims = [num_features]
+		self.weight = new gpu_tensor(c_dims, "ones")
+		self.bias = new gpu_tensor(c_dims, "zeros")
+		self.running_mean = new gpu_tensor(c_dims, "zeros")
+		self.running_var = new gpu_tensor(c_dims, "ones")
+		self.saved_mean = new gpu_tensor(c_dims, "zeros")
+		self.saved_var = new gpu_tensor(c_dims, "zeros")
+		
+		self.weight.shall_prop = true
+		self.bias.shall_prop = true
+
+		self.weight.as_weight()
+		self.bias.as_weight()
+
+	def gpu_tensor forward(gpu_tensor x)
+		int b = x.dims[0], c = x.dims[1], h = x.dims[2], w = x.dims[3]
+		gpu_tensor ret = new gpu_tensor(x.dims, "zeros_pool")
+		
+		launch [c] [256] smem_size batchnorm2d_forward_shared_k(
+						ret.ptr offby 0, x.ptr offby 0,
+						self.running_mean.ptr offby 0, self.running_var.ptr offby 0,
+						self.saved_mean.ptr offby 0, self.saved_var.ptr offby 0,
+						self.weight.ptr offby 0, self.bias.ptr offby 0,
+						b, c, h, w, self.eps, self.momentum, self.training)
+
+		bool shall_prop = x.shall_prop or self.weight.shall_prop
+		if shall_prop
+			$backprop.register_module([x], [ret], self, "batchnorm2d")
+		ret.shall_prop = shall_prop
+
+		return ret
+		
+	def int backprop(array<gpu_tensor> inp, array<gpu_tensor> out)
+		var x = inp[0]
+		var dx = x.getd()
+		var dy = out[0].getd()
+		var dw = self.weight.getd()
+		var db = self.bias.getd()
+		
+		int b = x.dims[0], c = x.dims[1], h = x.dims[2], w = x.dims[3]
+		
+		launch [c] [256] smem_size batchnorm2d_backward_shared_k(
+						dx offby 0, dy offby 0, x.ptr offby 0,
+						self.saved_mean.ptr offby 0, self.saved_var.ptr offby 0,
+						self.weight.ptr offby 0, dw offby 0, db offby 0,
+						b, c, h, w, self.eps, x.shall_prop)
+
+
+
+###########---------------- 2D Convolution ----------------###########
+
+
+
+kernel void conv2d_forward_k(float[] y, float[] x, float[] weight, int batch, int c_in, int c_out, int h, int w, int out_h, int out_w, int ks, int stride, int padding)
+	int idx = bx * 256 + tx
+	int total = batch * c_out * out_h * out_w
+	if idx >= total
+		return
+		
+	int ow = idx % out_w
+	int oh = (idx // out_w) % out_h
+	int oc = (idx // (out_w * out_h)) % c_out
+	int n = idx // (out_w * out_h * c_out)
+	
+	float val = 0.0
+	
+	for ic = 0, ic < c_in
+		for kh = 0, kh < ks
+			for kw = 0, kw < ks
+				int ih = oh * stride - padding + kh
+				int iw = ow * stride - padding + kw
+				
+				if ih >= 0 and ih < h and iw >= 0 and iw < w
+					int in_idx = n * (c_in * h * w) + ic * (h * w) + ih * w + iw
+					int w_idx = ic * (c_out * ks * ks) + oc * (ks * ks) + kh * ks + kw
+					val += x[in_idx] * weight[w_idx]
+					
+	y[idx] = val
+
+kernel void conv2d_backward_weight_shared_k(float[] dw, float[] x, float[] dy, int batch, int c_in, int c_out, int h, int w, int out_h, int out_w, int ks, int stride, int padding)
+	int w_idx = bx
+	int total_w = c_in * c_out * ks * ks
+	if w_idx >= total_w
+		return
+		
+	int kw = w_idx % ks
+	int kh = (w_idx // ks) % ks
+	int oc = (w_idx // (ks * ks)) % c_out
+	int ic = w_idx // (ks * ks * c_out)
+	
+	int spatial_out = out_h * out_w
+	int total_elements = batch * spatial_out
+	int iters = (total_elements + 255) // 256
+	
+	var smem_dw = layout<float, 256, smem>()
+	float local_dw = 0
+	
+	for j = 0, j < iters
+		int i = j * 256 + tx
+		if i < total_elements
+			int ow = i % out_w
+			int oh = (i // out_w) % out_h
+			int n = i // (out_w * out_h)
+			
+			int ih = oh * stride - padding + kh
+			int iw = ow * stride - padding + kw
+			
+			if ih >= 0 and ih < h and iw >= 0 and iw < w
+				int in_idx = n * (c_in * h * w) + ic * (h * w) + ih * w + iw
+				int dy_idx = n * (c_out * out_h * out_w) + oc * (out_h * out_w) + oh * out_w + ow
+				local_dw += x[in_idx] * dy[dy_idx]
+				
+	smem_dw[tx] = local_dw
+	syncthreads()
+	
+	int s = 128
+	for step = 0, step < 8
+		if tx < s
+			smem_dw[tx] += smem_dw[tx + s]
+		syncthreads()
+		s = s // 2
+		
+	if tx == 0
+		dw[w_idx] += smem_dw[0]
+
+kernel void conv2d_backward_input_k(float[] dx, float[] dy, float[] weight, int batch, int c_in, int c_out, int h, int w, int out_h, int out_w, int ks, int stride, int padding)
+	int idx = bx * 256 + tx
+	int total = batch * c_in * h * w
+	if idx >= total
+		return
+		
+	int iw = idx % w
+	int ih = (idx // w) % h
+	int ic = (idx // (w * h)) % c_in
+	int n = idx // (w * h * c_in)
+	
+	float local_dx = 0
+	
+	for oc = 0, oc < c_out
+		for kh = 0, kh < ks
+			for kw = 0, kw < ks
+				int oh_num = ih + padding - kh
+				int ow_num = iw + padding - kw
+				
+				if oh_num % stride == 0 and ow_num % stride == 0
+					int oh = oh_num // stride
+					int ow = ow_num // stride
+					
+					if oh >= 0 and oh < out_h and ow >= 0 and ow < out_w
+						int dy_idx = n * (c_out * out_h * out_w) + oc * (out_h * out_w) + oh * out_w + ow
+						int w_idx = ic * (c_out * ks * ks) + oc * (ks * ks) + kh * ks + kw
+						local_dx += dy[dy_idx] * weight[w_idx]
+						
+	dx[idx] = local_dx
+
+
+def int ConvScratch_backward(array<gpu_tensor> inp, array<gpu_tensor> out, ConvScratch y)
+	y.backprop(inp, out)
+	
+
+
+class ConvScratch
+	gpu_tensor w
+	int padding, stride, ks, m, n
+
+	ctor(int m, int n, int ks, int stride, int padding, str init)
+		self.padding = padding
+		self.stride = stride
+		self.ks = ks
+		self.m = m
+		self.n = n
+
+		self.w = new gpu_tensor([m, n, ks, ks], "conv")
+		self.w.as_weight()
+
+	def gpu_tensor forward(gpu_tensor x)
+		int b = x.dims[0], c = x.dims[1], h = x.dims[2], w = x.dims[3]
+		if c != self.m
+			print("ConvScratch expects the same amount of dims for input and module")
+			print("input dims")
+			x.print_dims()
+			print("Expected input channels: ", self.m)
+			_quit_()
+
+		int out_h = (h - self.ks + 2 * self.padding) // self.stride + 1
+		int out_w = (w - self.ks + 2 * self.padding) // self.stride + 1
+		var new_dims = [b, self.n, out_h, out_w]
+
+		gpu_tensor ret = new gpu_tensor(new_dims, "zeros_pool")
+		
+		int total_out = b * self.n * out_h * out_w
+		int grid_dim = (total_out + 255) // 256
+		
+		launch [grid_dim] [256] smem_size conv2d_forward_k(
+						ret.ptr offby 0, x.ptr offby 0, self.w.ptr offby 0,
+						b, self.m, self.n, h, w, out_h, out_w, self.ks, self.stride, self.padding)
+
+		bool shall_prop = x.shall_prop or self.w.shall_prop
+		if shall_prop
+			$backprop.register_module([x, self.w], [ret], self, "convscratch")
+		ret.shall_prop = shall_prop
+
+		return ret
+		
+	def int backprop(array<gpu_tensor> inp, array<gpu_tensor> out)
+		var x = inp[0]
+		var dw = self.w.getd()
+		var dy = out[0].getd()
+
+		int b = x.dims[0], c = x.dims[1], h = x.dims[2], w = x.dims[3]
+		int out_h = (h - self.ks + 2 * self.padding) // self.stride + 1
+		int out_w = (w - self.ks + 2 * self.padding) // self.stride + 1
+
+		int total_w = self.m * self.n * self.ks * self.ks
+		
+		launch [total_w] [256] smem_size conv2d_backward_weight_shared_k(
+						dw offby 0, x.ptr offby 0, dy offby 0,
+						b, self.m, self.n, h, w, out_h, out_w, self.ks, self.stride, self.padding)
+
+		if x.shall_prop
+			var dx = x.getd()
+			int total_x = b * self.m * h * w
+			int grid_dim_x = (total_x + 255) // 256
+			launch [grid_dim_x] [256] smem_size conv2d_backward_input_k(
+						dx offby 0, dy offby 0, self.w.ptr offby 0,
+						b, self.m, self.n, h, w, out_h, out_w, self.ks, self.stride, self.padding)
+
+
+
+###########---------------- GPU Tensor ----------------###########
+
+
+
+class gpu_tensor
+	array<int> dims
+	int dims_prod, type
+	float_pp ptr, d
+	bf16_pp ptr_bf16, d_bf16
+	bool is_weight, shall_prop
+	array<BackNode> reqs
+
+	ctor(array<int> dims, str init)
+		self.dims = dims
+		self.dims_prod = self.dims reduce *
+		self.is_weight = false
+		self.shall_prop = false
+		self.d = nil
+		self.type = float_t
+		if init=="xavu"
+			self.ptr = xavu_cuda(self.dims_prod, dims[0], dims[1])
+			self.type = float_t
+		if init=="xavu_relu"
+			self.ptr = xavu_relu_cuda(self.dims_prod, dims[0], dims[1])
+			self.type = float_t
+		if init=="kaiming"
+			self.ptr = kaiming_cuda(self.dims_prod, dims[0], dims[1])
+			self.type = float_t
+		if init=="kaiming_relu"
+			self.ptr = kaiming_relu_cuda(self.dims_prod, dims[0], dims[1])
+			self.type = float_t
+		if init=="conv"
+			self.ptr = xavu_cuda(self.dims_prod, dims[0]*dims[-1]*dims[-1], dims[1]*dims[-1]*dims[-1])
+			self.type = float_t
+		if init=="randu"
+			self.ptr = randu_cuda(self.dims_prod)
+			self.type = float_t
+		if init=="zeros"
+			self.ptr = zeros_cuda(self.dims_prod)
+			self.type = float_t
+		if init=="zeros_pool"
+			self.ptr = zeros_cuda_pool(self.dims_prod)
+			self.type = float_t
+		if init=="ones"
+			self.ptr = ones_cuda(self.dims_prod)
+			self.type = float_t
+		if init=="randu_bf16"
+			self.ptr_bf16 = randu_bf16_cuda(self.dims_prod)
+			self.type = bf16_t
+		if init=="zeros_bf16"
+			self.ptr_bf16 = zeros_bf16_cuda(self.dims_prod)
+			self.type = bf16_t
+		if init=="none"
+			0
+
+	def float_pp getd()
+		if !self.d
+			self.d = zeros_cuda_pool(self.dims_prod)
+		if self.is_weight
+			$optim_info.register(self)
+		return self.d
+
+	def float as_weight()
+		self.is_weight = true
+		self.shall_prop = true
+
+	def float print()
+		print(" ")
+		self.print_dims()
+		if self.type==float_t
+			var z = self.ptr.cpu(self.dims_prod)
+			z.print(self.dims)
+		if self.type==bf16_t
+			var z = self.ptr_bf16.cpu(self.dims_prod)
+			z.print(self.dims)
+			0
+		self.print_dims()
+		print(" ")
+	def float printd()
+		print(" ")
+		self.print_dims()
+		var z = self.d.cpu(self.dims_prod)
+		z.print(self.dims)
+		self.print_dims()
+		print(" ")
+
+	def void save(str path)
+		if self.type==bf16_t
+			self.ptr_bf16.cpu(self.dims_prod).save(self.dims_prod, path)
+		else
+			print("Save float")
+
+	def float print_dims()
+		self.dims.print()
+	def float shape()
+		self.dims.print()
+
+	def int load_img(str path)
+		float_cpu img
+		array<int> img_dims
+		img, img_dims = load_image(path)
+		self.dims = img_dims
+		self.dims_prod = img_dims.prod()
+		self.ptr = img.cuda(img_dims.prod())
+
+	def gpu_tensor view(array<int> dims)
+		if self.dims_prod != dims.prod()
+			int prod=1
+			bool has_neg=false
+			for i in dims
+				if i==-1
+					has_neg=true
+				else
+					prod = prod * i
+			if has_neg
+				array<int> new_dims
+				for i in dims
+					if i==-1
+						new_dims.append(self.dims_prod//prod)
+					else
+						new_dims.append(i)
+				dims = new_dims
+			else
+				print("Incorrect view dims.")
+				_quit_()
+		gpu_tensor view_gpu_tensor = new gpu_tensor(dims, "none")
+		view_gpu_tensor.ptr = self.ptr
+		view_gpu_tensor.d = self.d
+		view_gpu_tensor.shall_prop = self.shall_prop
+		if self.shall_prop
+			$backprop.register([self], [view_gpu_tensor], "view")
+		return view_gpu_tensor
+
+
+def gpu_tensor image_gpu_tensor(str path)
+	float_cpu img
+	array<int> img_dims
+	img, img_dims = load_image(path)
+	gpu_tensor ret = new gpu_tensor(img_dims, "none")
+	ret.ptr = img.cuda(img_dims.prod())
+	return ret
+
+
+
+###########---------------- Tensor CPU (for async preprocessing) ----------------###########
+
+
+
+class tensor_cpu
+	array<int> dims, w_flipswitch, w_loadswitch
+	int num_workers,bs,ld
+	float_cpu x
+	array<int> dims
+
+	ctor(array<int> wb_dims, array<int> data_dims)
+		int dims_prod = data_dims.prod()
+		int size = 2*wb_dims.prod()*dims_prod*4
+		self.x = cumalloc_host(size)
+		self.num_workers = wb_dims[0]
+		self.bs = wb_dims[1]
+		self.ld = dims_prod
+
+		self.dims.append(wb_dims[1])
+		for i=0, i<data_dims.size()
+			self.dims.append(data_dims[i])
+
+		self.w_flipswitch = zeros_int(self.num_workers)
+		self.w_loadswitch = zeros_int(self.num_workers)
+
+	def int switch()
+		self.w_flipswitch[tid] = (1-self.w_flipswitch[tid])
+
+	def float_cpu at(int b)
+		return self.x offby ((self.w_flipswitch[tid]*self.num_workers + tid)*self.bs + b)*self.ld
+
+	def gpu_tensor load(int w)
+		float_cpu ret = self.x offby ((self.w_loadswitch[w]*self.num_workers + w)*self.bs)*self.ld
+		var x = ret.cupool(self.bs*self.ld)
+		self.w_loadswitch[w] = (1-self.w_loadswitch[w])
+		gpu_tensor t = new gpu_tensor(self.dims, "none")
+		t.ptr = x
+		return t
+
+
+
+###########---------------- Backpropagation ----------------###########
+
+
+
+class BackNode
+	array<gpu_tensor> inp, out
+	bool solved
+	str op
+	any module
+	ctor(array<gpu_tensor> inp, array<gpu_tensor> out, str op)
+		self.inp = inp
+		self.out = out
+		self.op = op
+		self.solved = false
+		self.module = nil
+
+		for _inp in inp
+			$backprop.grad_deps[_inp].append(self)
+
+class backprop
+	bool on
+	array<BackNode> ops
+	map<gpu_tensor, array<BackNode>> grad_deps
+	map<str, Function<int, array<gpu_tensor>, array<gpu_tensor>, any>> backs
+	ctor()
+		self.on = true
+		0		
+
+	def float backward()
+		for i=self.ops.size()-1, i>=0, -1
+			var op = self.ops[i]
+
+			bool shall_prop = false
+			for inp in op.inp
+				if inp.shall_prop
+					shall_prop=true
+					break
+			if shall_prop
+				self.backward_one(op)
+
+		self.ops.clear()
+		self.grad_deps.clear()
+
+	def float backward_one(BackNode op)
+		if op.solved
+			return 0
+		if !!op.out # if not loss
+			for out in op.out
+				if !out
+					continue
+				if !self.grad_deps.has(out) or !out.shall_prop
+					continue
+				for dep in self.grad_deps[out]
+					self.backward_one(dep)
+
+		self.backs[op.op](op.inp, op.out, op.module)
+		op.solved=true
+
+
+	def float register(array<gpu_tensor> inp, array<gpu_tensor> out, str op)
+		if self.on
+			self.ops.append(new BackNode(inp, out, op))
+
+	def float register_module(array<gpu_tensor> inp, array<gpu_tensor> out, any module, str op)
+		if !self.on
+			return 0
+		var node = new BackNode(inp, out, op)
+		node.module = module
+		self.ops.append(node)
+
+
+class optim_info
+	array<gpu_tensor> params
+	ctor()
+		0
+	def float register(gpu_tensor x)
+		self.params.append(x)
+
+kernel void AdamW_k(float[] param, float[] d, float[] m, float[] v,
+					float lr, int n, float beta1, float beta2,
+					float beta1_correction, float beta2_correction,
+					float eps, float wd)
+	int i = bx*256 + tx
+	if i>=n
+		return
+
+	float m_i = (1-beta1)*d[i] + beta1*m[i]
+	float v_i = (1-beta2)*(d[i]*d[i]) + beta2*v[i]
+	m[i] = m_i
+	v[i] = v_i
+
+	m_i/=beta1_correction
+	v_i/=beta2_correction
+	
+	param[i] -= lr*( m_i / (sqrt(v_i) + eps) + wd*param[i] )
+
+class AdamW
+	float lr, beta1, beta2, wd, eps
+	array<gpu_tensor> m, v
+	int ts
+
+	ctor(float lr, float beta1, float beta2)
+		self.lr = lr
+		self.beta1 = beta1
+		self.beta2 = beta2
+		self.ts = 1
+		self.wd = 0.01
+		self.eps = 0.0000001
+
+	def float step()
+		int i=0
+		for param in $optim_info.params
+			if i+1>self.v.size()
+				self.m.append(new gpu_tensor(param.dims, "zeros"))
+				self.v.append(new gpu_tensor(param.dims, "zeros"))
+
+			float beta1_correction = 1.0-pow(self.beta1, self.ts)
+			float beta2_correction = 1.0-pow(self.beta2, self.ts)
+
+			launch [param.dims_prod/|256] [256] AdamW_k(param.ptr offby 0, param.d offby 0,
+									 self.m[i].ptr offby 0, self.v[i].ptr offby 0,
+									 self.lr, param.dims_prod, self.beta1, self.beta2,
+									 beta1_correction, beta2_correction, self.eps,
+									 self.wd
+								 )
+			param.d=nil
+			i=i+1
+			self.ts = self.ts+1
+		$optim_info.params.clear()
+		tarena_reset()
+
+
+class Linear
+	int m, n
+	gpu_tensor w
+	ctor(int m, int n, str init)
+		self.m = m
+		self.n = n
+		self.w = new gpu_tensor([n,m], init)
+		self.w.as_weight()
+	def gpu_tensor forward(gpu_tensor x)
+		if x.dims[-1]!=self.m
+			print("Error: Linear expected input dim: ", self.m)
+			print("Got")
+			x.print_dims()
+			_quit_()
+		return x@self.w
+
+
+
+class Dataset
+    int batch_size, yield_ptr, _len, num_workers, epoch, steps
+    array<str> files
+	channel<int, 6> load_ch
+	tensor_cpu x, y
+	map<str, int> labels_map
+
+    ctor(i num_workers, str path)
+        self.batch_size = $cfg.bs
+        self.num_workers = num_workers
+            
+        self.files = glob(path)
+
+        self.yield_ptr = 0
+		self.epoch=0
+
+        self._len = self.files.size()
+        self.steps = self._len // $cfg.bs
+        self.shuf()
+
+		self.x = new tensor_cpu([num_workers, $cfg.bs], $cfg.inp_dim)
+		self.y = new tensor_cpu([num_workers, $cfg.bs], [1])
+		self.labels_map["airplane"] = 0
+		self.labels_map["automobile"] = 1
+		self.labels_map["bird"] = 2
+		self.labels_map["cat"] = 3
+		self.labels_map["deer"] = 4
+		self.labels_map["dog"] = 5
+		self.labels_map["frog"] = 6
+		self.labels_map["horse"] = 7
+		self.labels_map["ship"] = 8
+		self.labels_map["truck"] = 9
+
+    def int shuf()
+		self.files.shuffle()
+		0
+
+    def float terminate_workers()
+        print("Terminating ", self.num_workers, " workers")
+        self.load_ch.terminate()
+
+    def int increment_yield_ptr()
+		lock "yield"
+			if (self.yield_ptr + self.batch_size) <= (self._len/|self.batch_size)*self.batch_size - self.num_workers*self.batch_size*2
+				int ret = self.yield_ptr
+				self.yield_ptr = self.yield_ptr + self.batch_size
+			else
+				self.yield_ptr = 0
+				self.shuf()
+				self.epoch=self.epoch+1
+        return self.yield_ptr
+
+    def float getitem_w(i idx, i b)
+		lock "yield"
+			var aux = self.files[idx]
+
+		var img = self.x.at(b)
+		img.load_img(aux)
+
+		aux = aux.split('.')[0].split('_')[-1]
+
+		var y = self.y.at(b)
+		y[0]=self.labels_map[aux]
+
+    def float worker()
+        print("Start worker")
+        int yield_ptr, bs=self.batch_size
+		print("worker ", tid)
+
+        while self.load_ch.alive()
+			yield_ptr = self.increment_yield_ptr()
+
+			for b=0, b<bs
+				self.getitem_w(yield_ptr+b, b)
+				
+			self.load_ch <- tid
+			self.x.switch()
+			self.y.switch()
+
+    def tuple<gpu_tensor,gpu_tensor> batch()
+		int w <- self.load_ch
+
+		var x = self.x.load(w)
+		var y = self.y.load(w)
+		x = x.view([$cfg.bs, 3, 32, 32])
+
+        return x, y
+
+class ResidualModule
+	BatchNorm2d bn1, bn2, bn_skip
+	ConvScratch c1, c2, c_skip
+	bool has_skip
+    ctor(int m, int n, int stride)
+		self.c1 = new ConvScratch(m,n,3,stride,1,"conv")
+		self.bn1 = new BatchNorm2d(n, 0.00001, 0.1)
+		self.c2 = new ConvScratch(n,n,3,1,1,"conv")
+		self.bn2 = new BatchNorm2d(n, 0.00001, 0.1)
+		self.has_skip = m!=n or stride>1
+		if self.has_skip
+			self.c_skip = new ConvScratch(m,n, 1,stride,0, "conv") 
+			self.bn_skip = new BatchNorm2d(n, 0.00001, 0.1)
+    
+    def gpu_tensor forward(gpu_tensor x)
+        var z = x
+        x = self.c1.forward(x)
+		x = self.bn1.forward(x)
+        x = relu(x)
+
+        x = self.c2.forward(x)
+		x = self.bn2.forward(x)
+		x = relu(x)
+
+		if self.has_skip
+			z = self.c_skip.forward(z)
+			z = self.bn_skip.forward(z)
+		x += z
+        return x
+
+class ResidualBlock
+	ResidualModule b1, b2, b3
+	ctor(int m, int n, int stride)
+		self.b1 = new ResidualModule(m, n, stride)
+		self.b2 = new ResidualModule(n, n, 1)
+		self.b3 = new ResidualModule(n, n, 1)
+
+	def gpu_tensor forward(gpu_tensor x)
+		x = self.b1.forward(x)
+		x = self.b2.forward(x)
+		x = self.b3.forward(x)
+		return x
+
+class ResNet18
+	ConvScratch c1
+	ResidualBlock b1, b2, b3
+	AvgPool2d pool
+	Linear l1
+	ctor()
+		self.c1 = new ConvScratch(3,16, 3,1,1, "conv")
+
+		self.b1 = new ResidualBlock(16,16,1)
+		self.b2 = new ResidualBlock(16,32,2)
+		self.b3 = new ResidualBlock(32,64,2)
+		self.pool = new AvgPool2d(8,-1,0)
+
+		self.l1 = new Linear(64, 10, "xavu")
+	
+	def gpu_tensor forward(gpu_tensor x)
+		int bs = x.dims[0]
+		x = self.c1.forward(x)
+
+		x = self.b1.forward(x)
+		x = self.b2.forward(x)
+		x = self.b3.forward(x)
+
+		x = self.pool.forward(x)
+
+		x = x.view([bs,-1])
+		x = relu(x)
+		x = self.l1.forward(x)
+		return x
+
+def void train(ResNet18 model)
+	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/cifar/train/*.png")
+
+	AdamW optim(0.0001, 0.9, 0.98)
+	int steps = $cfg.train_steps
+
+	finish
+		asyncs $cfg.num_workers ds.worker()
+
+		[0..steps] i
+			print("i: ", i, " -- ", ds.yield_ptr)
+			gpu_tensor a, b
+			a, b = ds.batch()
+			var y_hat = model.forward(a)
+			ce_loss(y_hat, b)
+
+			$backprop.backward()
+			optim.step()
+		ds.terminate_workers()
+
+
+def void eval(ResNet18 model)
+
+	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/cifar/test/*.png")
+
+	var acc = new gpu_tensor([1],"zeros")
+
+	$backprop.on = false
+	int steps = ds.steps
+	finish
+		asyncs $cfg.num_workers ds.worker()
+
+		[0..steps] i
+			print("val ", i)
+			gpu_tensor a, b
+			a, b = ds.batch()
+			var y_hat = model.forward(a)
+			var eq_mask = y_hat.argmax()==b
+			var local_acc = eq_mask.mean()
+			acc += local_acc
+
+			tarena_reset()
+		ds.terminate_workers()
+
+	acc /= steps
+	print("Accuracy")
+	acc.print()
+
+main
+	$backprop.backs["add"] = add_backward
+	$backprop.backs["mma"] = mma_backward
+	$backprop.backs["relu"] = relu_backward
+	$backprop.backs["view"] = view_backward
+	$backprop.backs["ce"] = ce_backward
+	$backprop.backs["convscratch"] = ConvScratch_backward
+	$backprop.backs["avgpool2d"] = AvgPool2d_backward
+	$backprop.backs["batchnorm2d"] = BatchNorm2d_backward
+
+	start_timer()
+
+	ResNet18 model()
+	train(model)
+	eval(model)
+
+	end_timer()
