@@ -21,7 +21,7 @@ class CIFARDataset(Dataset):
             "deer": 4, "dog": 5, "frog": 6, "horse": 7,
             "ship": 8, "truck": 9
         }
-        # Assuming images are standard 8-bit pngs. ToTensor converts to [0,1] float32.
+
         self.transform = transforms.ToTensor()
 
     def __len__(self):
@@ -32,7 +32,6 @@ class CIFARDataset(Dataset):
         img = Image.open(file_path).convert('RGB')
         x = self.transform(img)
         
-        # Replicating logic: aux.split('.')[0].split('_')[-1]
         filename = os.path.basename(file_path)
         aux = filename.split('.')[0].split('_')[-1]
         y = self.labels_map[aux]
@@ -62,7 +61,7 @@ class ResidualModule(nn.Module):
         
         x = self.c2(x)
         x = self.bn2(x)
-        x = F.relu(x)  # Replicating pseudo-code exact order
+        x = F.relu(x)
         
         if self.has_skip:
             z = self.c_skip(z)
@@ -95,7 +94,6 @@ class ResNet18(nn.Module):
         self.pool = nn.AvgPool2d(kernel_size=8, stride=1, padding=0)
         
         self.l1 = nn.Linear(64, 10)
-        # "xavu" -> Xavier Uniform initialization
         nn.init.xavier_uniform_(self.l1.weight)
         nn.init.zeros_(self.l1.bias)
         
@@ -127,7 +125,6 @@ def train(model, device):
         try:
             a, b = next(data_iter)
         except StopIteration:
-            # Re-initialize dataloader iterator when epoch ends
             data_iter = iter(dataloader)
             a, b = next(data_iter)
             

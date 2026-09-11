@@ -40,22 +40,46 @@ time neve neve_samples/all_in_one.nv
 - It took around 10 minutes to run 20k steps with a RTX 4090.
 - Feel free to change the hyperparammeters in neve_samples/all_in_one.nv
 
+---
+## Results
+
+3 seeds in a RTX 4090.
+
+| Language | Acc | Time | Backend |
+| :--- | :--- | :--- | :--- |
+| **Neve** | 65.46+-0.37 | 592s+-6s | Naive Kernel |
+| **Neve** | 65.46+-0.45 | 261s+-9 | Partial cuDNN |
+| **PyTorch** | 74.82+1.27 | 64s+-6 | cuDNN |
 
 ---
-Second Benchmark (Frost & Networks Libs)
+
+## Second Benchmark (Frost & Networks Libs)
 
 Reinstall the frost library (setup.sh erases the include.nv content). Also, install the networks lib.
 
 ```
-nsm r NoSavedDATA/frost
-nsm i NoSavedDATA/frost
-nsm i NoSavedDATA/networks
+nsm r frost
+nsm i NoSavedDATA/frost NoSavedDATA/networks
 ```
 
 Now run the ResNet with cuDNN implementation.
 
 ```
 time neve neve_samples/resnet_frost.nv
+```
+
+
+---
+## Third Benchmark (PyTorch)
+
+```
+apt-get update
+apt-get install -y pip
+pip install -r requirements.txt
+```
+
+```
+time python3 pytorch_samples/resnet_cifar10.py 
 ```
 
 ---
