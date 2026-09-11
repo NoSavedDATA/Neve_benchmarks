@@ -49,7 +49,7 @@ time neve neve_samples/all_in_one.nv
 | :--- | :--- | :--- | :--- |
 | **Neve** | 65.46%+-0.37 | 592s+-6s | Naive Kernel |
 | **Neve** | 65.46%+-0.45 | 261s+-9s | Partial cuDNN |
-| **PyTorch** | 74.82%+1.27 | 64s+-6s | cuDNN |
+| **PyTorch** | 74.82%+-1.27 | 64s+-6s | cuDNN |
 
 ---
 
