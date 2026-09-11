@@ -51,6 +51,8 @@ time neve neve_samples/all_in_one.nv
 | **Neve** | 65.46%+-0.45 | 261s+-9s | Partial cuDNN |
 | **PyTorch** | 74.82%+-1.27 | 64s+-6s | cuDNN |
 
+Older Neve results surpassed PyTorch ( ([old NSK paper](https://arxiv.org/pdf/2409.11600)) ). It won't take too long until the kernels get corrected and optimized.
+
 ---
 
 ## Second Benchmark (Frost & Networks Libs)
