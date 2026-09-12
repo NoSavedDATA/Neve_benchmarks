@@ -13,7 +13,7 @@ class cfg
 class Dataset
     int batch_size, yield_ptr, _len, num_workers, epoch, steps
     array<str> files
-	channel<int, 6> load_ch
+	channel<int, 3> load_ch
 	tensor_cpu x, y
 	map<str, int> labels_map
 
@@ -52,22 +52,24 @@ class Dataset
         self.load_ch.terminate()
 
     def int increment_yield_ptr()
+		int ret
 		lock "yield"
-			if (self.yield_ptr + self.batch_size) <= (self._len/|self.batch_size)*self.batch_size - self.num_workers*self.batch_size*2
-				int ret = self.yield_ptr
+			if (self.yield_ptr + self.batch_size) <= (self.steps-self.num_workers)*self.batch_size
+				ret = self.yield_ptr
 				self.yield_ptr = self.yield_ptr + self.batch_size
 			else
 				self.yield_ptr = 0
+				ret = 0
 				self.shuf()
 				self.epoch=self.epoch+1
-        return self.yield_ptr
+        return ret
 
     def float getitem_w(i idx, i b)
 		lock "yield"
 			var aux = self.files[idx]
 
 		var img = self.x.at(b)
-		img.load_img(aux)
+		img.load_img(aux, 3)
 
 		aux = aux.split('.')[0].split('_')[-1]
 
@@ -94,6 +96,7 @@ class Dataset
 
 		var x = self.x.load(w)
 		var y = self.y.load(w)
+
 		x = x.view([$cfg.bs, 3, 32, 32])
 
         return x, y
@@ -101,16 +104,26 @@ class Dataset
 class ResidualModule
 	BatchNorm2d bn1, bn2, bn_skip
 	Conv2d c1, c2, c_skip
+	#ConvScratch c1, c2, c_skip
 	bool has_skip
     ctor(int m, int n, int stride)
 		self.c1 = new Conv2d(m,n, 3,stride,1, "conv")
+		#self.c1 = new ConvScratch(m,n,3,stride,1,"conv")
 		self.bn1 = new BatchNorm2d(n, 0.00001, 0.1)
 		self.c2 = new Conv2d(n,n, 3,1,1, "conv")
+		#self.c2 = new ConvScratch(n,n,3,1,1,"conv")
 		self.bn2 = new BatchNorm2d(n, 0.00001, 0.1)
 		self.has_skip = m!=n or stride>1
 		if self.has_skip
+			#self.c_skip = new ConvScratch(m,n, 1,stride,0, "conv") 
 			self.c_skip = new Conv2d(m,n, 1,stride,0, "conv") 
 			self.bn_skip = new BatchNorm2d(n, 0.00001, 0.1)
+
+	def void eval()
+		self.bn1.training = false
+		self.bn2.training = false
+		if self.has_skip
+			self.bn_skip.training = false
     
     def gpu_tensor forward(gpu_tensor x)
         var z = x
@@ -120,12 +133,12 @@ class ResidualModule
 
         x = self.c2.forward(x)
 		x = self.bn2.forward(x)
-		x = relu(x)
 
 		if self.has_skip
 			z = self.c_skip.forward(z)
 			z = self.bn_skip.forward(z)
 		x += z
+		x = relu(x)
         return x
 
 class ResidualBlock
@@ -134,6 +147,14 @@ class ResidualBlock
 		self.b1 = new ResidualModule(m, n, stride)
 		self.b2 = new ResidualModule(n, n, 1)
 		self.b3 = new ResidualModule(n, n, 1)
+		#self.blocks = [new ResidualModule(m, n, stride),
+		#			   new ResidualModule(n, n, 1),
+		#			   new ResidualModule(n, n, 1)]
+
+	def void eval()
+		self.b1.eval()
+		self.b2.eval()
+		self.b3.eval()
 
 	def gpu_tensor forward(gpu_tensor x)
 		x = self.b1.forward(x)
@@ -143,21 +164,36 @@ class ResidualBlock
 
 class ResNet18
 	Conv2d c1
+	#array<ResidualBlock> blocks
+	BatchNorm2d start_bn
 	ResidualBlock b1, b2, b3
 	AvgPool2d pool
 	Linear l1
 	ctor()
 		self.c1 = new Conv2d(3,16, 3,1,1, "conv")
+		self.start_bn = new BatchNorm2d(16, 0.00001, 0.1)
+		#self.blocks = [new ResidualBlock(16,16,1),
+		#				new ResidualBlock(16,32,2),
+		#				new ResidualBlock(32,64,2)]
 		self.b1 = new ResidualBlock(16,16,1)
 		self.b2 = new ResidualBlock(16,32,2)
 		self.b3 = new ResidualBlock(32,64,2)
-		self.pool = new AvgPool2d(8,-1,0)
+		self.pool = new AvgPool2d(8,1,0)
 
 		self.l1 = new Linear(64, 10, "xavu")
 	
+	def void eval()
+		self.start_bn.training = false
+		self.b1.eval()
+		self.b2.eval()
+		self.b3.eval()
+		
 	def gpu_tensor forward(gpu_tensor x)
 		int bs = x.dims[0]
 		x = self.c1.forward(x)
+		x = self.start_bn.forward(x)
+		x = relu(x)
+
 		x = self.b1.forward(x)
 		x = self.b2.forward(x)
 		x = self.b3.forward(x)
@@ -165,14 +201,14 @@ class ResNet18
 		x = self.pool.forward(x)
 
 		x = x.view([bs,-1])
-		x = relu(x)
 		x = self.l1.forward(x)
 		return x
 
 def void train(ResNet18 model)
 	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/cifar/train/*.png")
 
-	AdamW optim(0.0001, 0.9, 0.98)
+	#AdamW optim(0.0001, 0.9, 0.98)
+	AdamW optim(0.0001, 0.9, 0.999)
 	int steps = $cfg.train_steps
 
 	finish
@@ -195,8 +231,9 @@ def void eval(ResNet18 model)
 	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/cifar/test/*.png")
 
 	var acc = new gpu_tensor([1],"zeros")
-
+	model.eval()
 	$backprop.on = false
+
 	int steps = ds.steps
 	finish
 		asyncs $cfg.num_workers ds.worker()
@@ -223,3 +260,4 @@ main
 	train(model)
 	eval(model)
 	end_timer()
+

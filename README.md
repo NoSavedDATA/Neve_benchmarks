@@ -8,6 +8,26 @@
 Tested inside Linux, you may adapt pre-docker steps
 
 ---
+## Syntax Highlight
+
+Want to inspect the code (neve_samples/all_in_one.nv)? You could either tell your IDE to use Python highlight for .nv,
+or install a highlight plugin for either Vim or VSCode
+
+#### vim
+
+For vim, intall plugins 'NosavedDATA/vim-neve' and 'NosavedDATA/vim-neve-dark'.
+
+Then use set 'colorscheme ghdark' in the config file.
+
+
+#### vscode
+
+For vscode, install the syntax extension.
+```
+wget https://github.com/NoSavedDATA/Neve/releases/download/neve-bin/neve-syntax.vsix
+code --install-extension neve-syntax.vsix
+```
+---
 ## Install Steps
 
 Run a Docker to guarantee the GPU lib compatibility. Create a local folder first as the experiment volume path.
@@ -47,11 +67,13 @@ time neve neve_samples/all_in_one.nv
 
 | Language | Acc | Time | Backend |
 | :--- | :--- | :--- | :--- |
-| **Neve** | 65.46%+-0.37 | 592s+-6s | Naive Kernel |
-| **Neve** | 65.46%+-0.45 | 261s+-9s | Partial cuDNN |
+| **Neve** | 75.4%+-0.70 | 359+-2s | Naive Kernel |
+| **Neve** | 74.39%+-1.35 | 47+-1s | Partial cuDNN |
 | **PyTorch** | 74.82%+-1.27 | 64s+-6s | cuDNN |
 
-Older Neve results surpassed PyTorch ([old NSK paper](https://arxiv.org/pdf/2409.11600)). It won't take too long until the kernels get corrected and optimized.
+I got these same results in the [old NSK paper](https://arxiv.org/pdf/2409.11600). That early Neve version had most of the Deep Learning framework implemented in C++ and CUDA throught interop. Now almost everything is implemented in high-level Neve.
+
+Naive GPU kernels must be substituted by kernels with Matrix Multiplications in order to better match cuDNN behaviour.
 
 ---
 
@@ -94,3 +116,4 @@ time python3 pytorch_samples/resnet_cifar10.py
 - Improve tensor abstractions;
 - Asses GANs, audio networks and LLMs;
 - Neve flash-attention.
+

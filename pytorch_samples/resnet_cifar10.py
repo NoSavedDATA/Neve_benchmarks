@@ -58,16 +58,13 @@ class ResidualModule(nn.Module):
         x = self.c1(x)
         x = self.bn1(x)
         x = F.relu(x)
-        
+
         x = self.c2(x)
         x = self.bn2(x)
-        x = F.relu(x)
-        
         if self.has_skip:
             z = self.c_skip(z)
             z = self.bn_skip(z)
-            
-        x = x + z
+        x = F.relu(x + z)
         return x
 
 class ResidualBlock(nn.Module):
@@ -87,18 +84,20 @@ class ResNet18(nn.Module):
     def __init__(self):
         super().__init__()
         self.c1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.start_bn = nn.BatchNorm2d(16)
         self.b1 = ResidualBlock(16, 16, 1)
         self.b2 = ResidualBlock(16, 32, 2)
         self.b3 = ResidualBlock(32, 64, 2)
         
         self.pool = nn.AvgPool2d(kernel_size=8, stride=1, padding=0)
         
-        self.l1 = nn.Linear(64, 10)
+        self.l1 = nn.Linear(64, 10, bias=False)
         nn.init.xavier_uniform_(self.l1.weight)
-        nn.init.zeros_(self.l1.bias)
         
     def forward(self, x):
         x = self.c1(x)
+        x = self.start_bn(x)
+        x = F.relu(x)
         x = self.b1(x)
         x = self.b2(x)
         x = self.b3(x)
@@ -106,7 +105,6 @@ class ResNet18(nn.Module):
         x = self.pool(x)
         
         x = x.view(x.size(0), -1)
-        x = F.relu(x)
         x = self.l1(x)
         return x
 

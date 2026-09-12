@@ -1,6 +1,5 @@
 import frost
 
-# prototypes
 
 class cfg
 	int bs, num_workers, train_steps
@@ -24,7 +23,7 @@ proto float_cpu device_to_host(float_pp,i64)
 proto float_cpu float_pp_cpu(float_pp,i64)
 proto int host_to_device(float_cpu,float_pp,i64)
 proto int float_cpu_print(float_cpu, array<int>)
-proto tuple<float_cpu, array<int>> load_image(str)
+proto tuple<float_cpu, array<int>> load_image(str, int)
 
 proto float_pp float_cpu_cuda(float_cpu, int)
 proto float_pp float_cpu_cupool(float_cpu, int)
@@ -40,9 +39,8 @@ operation bf16[] bf16_pp_int_offby
 
 
 
-###########---------------- Warp Functions ----------------###########
 
-
+#warp
 
 gpu float warpSum(float val)
 	val += shfl_sync(val, 16)
@@ -67,9 +65,7 @@ gpu float warpMax(float val)
 	return val
 
 
-
-###########---------------- ReLU ----------------###########
-
+#relu
 
 
 kernel void relu_kernel(float[] y, float[] x, int n)
@@ -86,9 +82,7 @@ kernel void relu_backward_kernel(float[] y, float[] dx, float[] dy, int n)
 	if idx>=n
 		return
 	if y[idx]>0
-		dx[idx] = dy[idx]
-	else
-		dx[idx] = 0
+		dx[idx] += dy[idx]
 
 
 def gpu_tensor relu(gpu_tensor x)
@@ -109,8 +103,7 @@ def int relu_backward(array<gpu_tensor> inp, array<gpu_tensor> out, any module)
 
 
 
-###########---------------- Tensor Ops ----------------###########
-
+# ops
 
 
 def int add_backward(array<gpu_tensor> inp, array<gpu_tensor> out, any module)
@@ -209,10 +202,7 @@ def gpu_tensor ce_loss(gpu_tensor a, gpu_tensor b)
 	return ret
 
 
-
-###########---------------- Dim Reduction Ops ----------------###########
-
-
+# dim ops
 
 def tuple<array<int>,int,int> get_reduced_dims(array<int> dims)
 	int m, n
@@ -313,10 +303,7 @@ def gpu_tensor gpu_tensor_mean(gpu_tensor x, int dim=-1)
 	return ret
 
 
-
-###########---------------- AvgPool2d ----------------###########
-
-
+# pool
 
 kernel void avgpool2d_forward_k(float[] y, float[] x, int n, int c, int h, int w, int out_h, int out_w, int ks, int stride, int padding)
 	int tid = bx * 256 + tx
@@ -371,7 +358,7 @@ kernel void avgpool2d_backward_k(float[] dx, float[] dy, int n, int c, int h, in
 				int dy_idx = curr_n * (c * out_h * out_w) + curr_c * (out_h * out_w) + oh * out_w + ow
 				grad += dy[dy_idx] / (ks * ks)
 	
-	dx[tid] = grad
+	dx[tid] += grad
 
 
 def int AvgPool2d_backward(array<gpu_tensor> inp, array<gpu_tensor> out, AvgPool2d y)
@@ -425,11 +412,7 @@ class AvgPool2d
 							b, c, h, w, out_h, out_w,
 						    self.ks, self.stride, self.padding)
 
-
-
-###########---------------- BatchNorm2d ----------------###########
-
-
+# batchnorm
 
 kernel void batchnorm2d_forward_shared_k(float[] y, float[] x, float[] r_mean, float[] r_var, float[] s_mean, float[] s_var, float[] weight, float[] bias, int n, int c, int h, int w, float eps, float momentum, bool training)
 	int c_idx = bx
@@ -586,7 +569,7 @@ kernel void batchnorm2d_backward_shared_k(float[] dx, float[] dy, float[] x, flo
 				
 				float d = dy[idx]
 				float x_hat = (x[idx] - m) * inv_std
-				dx[idx] = (gamma * inv_std / num_elements) * (num_elements * d - total_db - x_hat * total_dw)
+				dx[idx] += (gamma * inv_std / num_elements) * (num_elements * d - total_db - x_hat * total_dw)
 
 
 def int BatchNorm2d_backward(array<gpu_tensor> inp, array<gpu_tensor> out, BatchNorm2d y)
@@ -655,8 +638,7 @@ class BatchNorm2d
 						b, c, h, w, self.eps, x.shall_prop)
 
 
-
-###########---------------- 2D Convolution ----------------###########
+# conv
 
 
 
@@ -760,7 +742,7 @@ kernel void conv2d_backward_input_k(float[] dx, float[] dy, float[] weight, int 
 						int w_idx = ic * (c_out * ks * ks) + oc * (ks * ks) + kh * ks + kw
 						local_dx += dy[dy_idx] * weight[w_idx]
 						
-	dx[idx] = local_dx
+	dx[idx] += local_dx
 
 
 def int ConvScratch_backward(array<gpu_tensor> inp, array<gpu_tensor> out, ConvScratch y)
@@ -835,10 +817,7 @@ class ConvScratch
 						b, self.m, self.n, h, w, out_h, out_w, self.ks, self.stride, self.padding)
 
 
-
-###########---------------- GPU Tensor ----------------###########
-
-
+# gpu tensor
 
 class gpu_tensor
 	array<int> dims
@@ -862,13 +841,10 @@ class gpu_tensor
 			self.ptr = xavu_relu_cuda(self.dims_prod, dims[0], dims[1])
 			self.type = float_t
 		if init=="kaiming"
-			self.ptr = kaiming_cuda(self.dims_prod, dims[0], dims[1])
-			self.type = float_t
-		if init=="kaiming_relu"
-			self.ptr = kaiming_relu_cuda(self.dims_prod, dims[0], dims[1])
+			self.ptr = kaiming_cuda(self.dims_prod, dims[0], dims[1],1)
 			self.type = float_t
 		if init=="conv"
-			self.ptr = xavu_cuda(self.dims_prod, dims[0]*dims[-1]*dims[-1], dims[1]*dims[-1]*dims[-1])
+			self.ptr = conv_w_cuda(self.dims_prod, dims[1]*dims[-1]*dims[-1], 0, 1)
 			self.type = float_t
 		if init=="randu"
 			self.ptr = randu_cuda(self.dims_prod)
@@ -924,6 +900,7 @@ class gpu_tensor
 
 	def void save(str path)
 		if self.type==bf16_t
+			#self.ptr_bf16.save(self.dims_prod, path)
 			self.ptr_bf16.cpu(self.dims_prod).save(self.dims_prod, path)
 		else
 			print("Save float")
@@ -936,7 +913,7 @@ class gpu_tensor
 	def int load_img(str path)
 		float_cpu img
 		array<int> img_dims
-		img, img_dims = load_image(path)
+		img, img_dims = load_image(path, 3)
 		self.dims = img_dims
 		self.dims_prod = img_dims.prod()
 		self.ptr = img.cuda(img_dims.prod())
@@ -973,15 +950,11 @@ class gpu_tensor
 def gpu_tensor image_gpu_tensor(str path)
 	float_cpu img
 	array<int> img_dims
-	img, img_dims = load_image(path)
+	#print("open img ", path)
+	img, img_dims = load_image(path, 3)
 	gpu_tensor ret = new gpu_tensor(img_dims, "none")
 	ret.ptr = img.cuda(img_dims.prod())
 	return ret
-
-
-
-###########---------------- Tensor CPU (for async preprocessing) ----------------###########
-
 
 
 class tensor_cpu
@@ -1019,11 +992,7 @@ class tensor_cpu
 		t.ptr = x
 		return t
 
-
-
 ###########---------------- Backpropagation ----------------###########
-
-
 
 class BackNode
 	array<gpu_tensor> inp, out
@@ -1148,7 +1117,7 @@ class AdamW
 								 )
 			param.d=nil
 			i=i+1
-			self.ts = self.ts+1
+		self.ts = self.ts+1
 		$optim_info.params.clear()
 		tarena_reset()
 
@@ -1174,7 +1143,7 @@ class Linear
 class Dataset
     int batch_size, yield_ptr, _len, num_workers, epoch, steps
     array<str> files
-	channel<int, 6> load_ch
+	channel<int, 3> load_ch
 	tensor_cpu x, y
 	map<str, int> labels_map
 
@@ -1213,22 +1182,24 @@ class Dataset
         self.load_ch.terminate()
 
     def int increment_yield_ptr()
+		int ret
 		lock "yield"
-			if (self.yield_ptr + self.batch_size) <= (self._len/|self.batch_size)*self.batch_size - self.num_workers*self.batch_size*2
-				int ret = self.yield_ptr
+			if (self.yield_ptr + self.batch_size) <= (self.steps-self.num_workers)*self.batch_size
+				ret = self.yield_ptr
 				self.yield_ptr = self.yield_ptr + self.batch_size
 			else
 				self.yield_ptr = 0
+				ret = 0
 				self.shuf()
 				self.epoch=self.epoch+1
-        return self.yield_ptr
+        return ret
 
     def float getitem_w(i idx, i b)
 		lock "yield"
 			var aux = self.files[idx]
 
 		var img = self.x.at(b)
-		img.load_img(aux)
+		img.load_img(aux,3)
 
 		aux = aux.split('.')[0].split('_')[-1]
 
@@ -1272,7 +1243,12 @@ class ResidualModule
 		if self.has_skip
 			self.c_skip = new ConvScratch(m,n, 1,stride,0, "conv") 
 			self.bn_skip = new BatchNorm2d(n, 0.00001, 0.1)
-    
+	def void eval()
+		self.bn1.training=false
+		self.bn2.training=false
+		if self.has_skip
+			self.bn_skip.training = false
+
     def gpu_tensor forward(gpu_tensor x)
         var z = x
         x = self.c1.forward(x)
@@ -1281,12 +1257,12 @@ class ResidualModule
 
         x = self.c2.forward(x)
 		x = self.bn2.forward(x)
-		x = relu(x)
 
 		if self.has_skip
 			z = self.c_skip.forward(z)
 			z = self.bn_skip.forward(z)
 		x += z
+		x = relu(x)
         return x
 
 class ResidualBlock
@@ -1296,6 +1272,11 @@ class ResidualBlock
 		self.b2 = new ResidualModule(n, n, 1)
 		self.b3 = new ResidualModule(n, n, 1)
 
+	def void eval()
+		self.b1.eval()
+		self.b2.eval()
+		self.b3.eval()
+
 	def gpu_tensor forward(gpu_tensor x)
 		x = self.b1.forward(x)
 		x = self.b2.forward(x)
@@ -1304,22 +1285,32 @@ class ResidualBlock
 
 class ResNet18
 	ConvScratch c1
+	BatchNorm2d start_bn
 	ResidualBlock b1, b2, b3
 	AvgPool2d pool
 	Linear l1
 	ctor()
 		self.c1 = new ConvScratch(3,16, 3,1,1, "conv")
+		self.start_bn = new BatchNorm2d(16, 0.00001, 0.1)
 
 		self.b1 = new ResidualBlock(16,16,1)
 		self.b2 = new ResidualBlock(16,32,2)
 		self.b3 = new ResidualBlock(32,64,2)
-		self.pool = new AvgPool2d(8,-1,0)
+		self.pool = new AvgPool2d(8,1,0)
 
 		self.l1 = new Linear(64, 10, "xavu")
+
+	def void eval()
+		self.start_bn.training = false
+		self.b1.eval()
+		self.b2.eval()
+		self.b3.eval()
 	
 	def gpu_tensor forward(gpu_tensor x)
 		int bs = x.dims[0]
 		x = self.c1.forward(x)
+		x = self.start_bn.forward(x)
+		x = relu(x)
 
 		x = self.b1.forward(x)
 		x = self.b2.forward(x)
@@ -1328,14 +1319,13 @@ class ResNet18
 		x = self.pool.forward(x)
 
 		x = x.view([bs,-1])
-		x = relu(x)
 		x = self.l1.forward(x)
 		return x
 
 def void train(ResNet18 model)
 	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/cifar/train/*.png")
 
-	AdamW optim(0.0001, 0.9, 0.98)
+	AdamW optim(0.0001, 0.9, 0.999)
 	int steps = $cfg.train_steps
 
 	finish
@@ -1356,6 +1346,7 @@ def void train(ResNet18 model)
 def void eval(ResNet18 model)
 
 	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/cifar/test/*.png")
+	model.eval()
 
 	var acc = new gpu_tensor([1],"zeros")
 
@@ -1397,3 +1388,4 @@ main
 	eval(model)
 
 	end_timer()
+
