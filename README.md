@@ -71,7 +71,7 @@ time neve neve_samples/all_in_one.nv
 | **Neve** | 74.39%+-1.35 | 47+-1s | Partial cuDNN |
 | **PyTorch** | 74.82%+-1.27 | 64s+-6s | cuDNN |
 
-I got these same results in the [old NSK paper](https://arxiv.org/pdf/2409.11600). That early Neve version had most of the Deep Learning framework implemented in C++ and CUDA throught interop. Now almost everything is implemented in high-level Neve.
+I got similar results in the [old NSK paper](https://arxiv.org/pdf/2409.11600). That early Neve version had most of the Deep Learning framework implemented in C++ and CUDA throught interop. Now almost everything is implemented in high-level Neve.
 
 Naive GPU kernels must be substituted by kernels with Matrix Multiplications in order to better match cuDNN behaviour.
 
