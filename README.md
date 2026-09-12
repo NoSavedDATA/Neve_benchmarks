@@ -97,8 +97,6 @@ time neve neve_samples/resnet_frost.nv
 ## Third Benchmark (PyTorch)
 
 ```
-apt-get update
-apt-get install -y pip
 pip install -r requirements.txt
 ```
 
