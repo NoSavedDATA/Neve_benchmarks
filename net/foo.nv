@@ -1,0 +1,27 @@
+import net
+
+def void handle_client(TcpStream conn)
+
+    char[1024] buf
+
+	str http_response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nOK"
+    while true
+		print("read")
+        i64 bytes_read = conn.read(buf offby 0, 1024)
+		print("buf:")
+		print(buf)
+		print("Got answered: ", bytes_read)
+        if bytes_read <= 0
+			print("break no bytes read")
+            break
+            
+		print("send")
+		# print(http_response)
+        conn.send(http_response)
+        
+    conn.close()
+
+
+main
+	var server = new NetServer("0.0.0.0")
+	server.start(handle_client)
