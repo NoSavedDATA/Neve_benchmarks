@@ -36,3 +36,9 @@ go build -o server net_bench.go
 ./server
 ```
 Then run one of the wrk commands
+
+
+Evaluate Python
+```bash
+python3 net_bench.py
+```
