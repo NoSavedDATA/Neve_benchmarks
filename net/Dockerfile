@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     wget \
     curl \
+	zlib1g-dev \
+    libzstd-dev \
     software-properties-common \
     gnupg \
     && rm -rf /var/lib/apt/lists/*

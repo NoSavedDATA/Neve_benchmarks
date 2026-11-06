@@ -25,3 +25,4 @@ def void handle_client(TcpStream conn)
 main
 	var server = new NetServer("0.0.0.0")
 	server.start(handle_client)
+

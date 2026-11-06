@@ -24,7 +24,7 @@ RUN wget -qO- https://github.com/NoSavedDATA/Neve/releases/download/neve-bin/ins
 
 
 # Set up the working directory
-WORKDIR /frost_exp/Neve_benchmarks
+WORKDIR /frost_exp/Neve_benchmarks/resnet_cifar
 
 # Copy the local repository files into the container
 COPY . .

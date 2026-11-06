@@ -8,26 +8,6 @@
 Tested inside Linux, you may adapt pre-docker steps
 
 ---
-## Syntax Highlight
-
-Want to inspect the code (neve_samples/all_in_one.nv)? You could either tell your IDE to use Python highlight for .nv,
-or install a highlight plugin for either Vim or VSCode
-
-#### vim
-
-For vim, intall plugins 'NosavedDATA/vim-neve' and 'NosavedDATA/vim-neve-dark'.
-
-Then use set 'colorscheme ghdark' in the config file.
-
-
-#### vscode
-
-For vscode, install the syntax extension.
-```
-wget https://github.com/NoSavedDATA/Neve/releases/download/neve-bin/neve-syntax.vsix
-code --install-extension neve-syntax.vsix
-```
----
 ## Install Steps
 
 Run a Docker to guarantee the GPU lib compatibility. Create a local folder first as the experiment volume path.
@@ -35,7 +15,7 @@ Run a Docker to guarantee the GPU lib compatibility. Create a local folder first
 ```
 cd ~/
 git clone https://github.com/NoSavedDATA/Neve_benchmarks.git
-cd Neve_benchmarks
+cd Neve_benchmarks/resnet_cifar
 docker build -t neve-frost .
 docker run --gpus all -v ~/Neve_benchmarks:/frost_exp/Neve_benchmarks -it neve-frost bash
 ```
