@@ -33,7 +33,7 @@ RUN wget -qO- https://github.com/NoSavedDATA/Neve/releases/download/neve-bin/ins
 RUN nsm i NoSavedDATA/net
 
 # Set up the working directory
-WORKDIR /frost_exp/Neve_benchmarks
+WORKDIR /frost_exp/Neve_benchmarks/net
 
 # OPTIONAL: Copy dependency manifests first to leverage Docker layer caching.
 # If you do this, Docker won't re-download PyTorch/Go packages every time you change your code.

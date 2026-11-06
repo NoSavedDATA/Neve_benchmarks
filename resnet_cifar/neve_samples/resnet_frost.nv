@@ -8,7 +8,7 @@ class cfg
 		self.bs = 32
 		self.num_workers = 3
 		self.inp_dim = [3,32,32]
-		self.train_steps = 20000
+		self.train_steps = 2000
 
 class Dataset
     int batch_size, yield_ptr, _len, num_workers, epoch, steps
