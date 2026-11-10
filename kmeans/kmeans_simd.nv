@@ -1,23 +1,37 @@
 import csv
-import frost
+
+class float_b
+	float[] x
+	ctor(int size)
+		self.x = c_malloc(size*4)
+	def void disown()
+		c_free(self.x)
 
 
+class int_b
+	int[] x
+	ctor(int size)
+		self.x = c_malloc(size*4)
+	def void disown()
+		c_free(self.x)
 
-class Iris_DF
+
+class HAR_df
 	float[] buffer
 	int[] labels
-	Csv df
+	Csv df, label_df
 	int M, N
 	map<str,int> labels_map
 	ctor(str file_name, str eval_fname)
-		Csv df = new Csv(file_name, ' ')
-		Csv label_df = new Csv(eval_fname, ' ')
+		Csv df = own Csv(file_name, ' ')
+		Csv label_df = own Csv(eval_fname, ' ')
 		self.df = df
+		self.label_df = label_df
 
 		self.M = df.elem[0].size()-1 # skip csv header
 		self.N = df.elem.size()-1 # minus label
 
-		#print("M ", self.M, ", N: ", self.N)
+		print("M ", self.M, ", N: ", self.N)
 
 		#int M = label_df.elem[0].size()-1 # skip csv header
 		#int N = label_df.elem.size() # minus label
@@ -59,11 +73,11 @@ class Iris_DF
 			for i=0, i<rows
 				self.buffer[i*self.N+j] = (self.buffer[i*self.N+j]-avg)/std
 
-
-
 		for i=0, i<rows
 			str label = label_df.elem[0][i]
 			self.labels[i] = label.int()-1
+
+
 
 
 class Kmeans_SIMD
@@ -95,69 +109,67 @@ class Kmeans_SIMD
 		else
 			test_M_padded = test_M + (16 - rem)
 			
-		float[] test_x_pack = c_malloc(test_M_padded * self.N * 4)
+		var test_x_pack = own float_b(test_M_padded * self.N)
 		for i=0, i<test_M_padded * self.N
-			test_x_pack[i] = 0.0
+			test_x_pack.x[i] = 0.0
 			
 		for i=0, i<test_M
 			for j=0, j<self.N
-				test_x_pack[j * test_M_padded + i] = test_buffer[i * self.N + j]
+				test_x_pack.x[j * test_M_padded + i] = test_buffer[i * self.N + j]
 
 		int[] test_pred = c_malloc(test_M * 4)
-		float[] dist_matrix = c_malloc(self.K * test_M_padded * 4)
+		#float[] dist_matrix = c_malloc(self.K * test_M_padded * 4)
+		var dist_matrix = own float_b(self.K * test_M_padded)
 
 		for m_offset=0, m_offset<test_M_padded, 16
 			for c_i=0, c_i<self.K
 				vec<float,16> acc = vec_make(0.0, 16)
 				for f=0, f<self.N
-					vec<float,16> x_f = simd_load(test_x_pack offby f * test_M_padded + m_offset, float, 16)
+					vec<float,16> x_f = simd_load(test_x_pack.x offby f * test_M_padded + m_offset, float, 16)
 					vec<float,16> c_f = vec_make(self.centroids[c_i * self.N + f], 16)
 					vec<float,16> diff = x_f - c_f
 					acc += diff * diff
-				simd_store(dist_matrix offby c_i * test_M_padded + m_offset, acc)
+				simd_store(dist_matrix.x offby c_i * test_M_padded + m_offset, acc)
 
 		for i=0, i<test_M
-			float min_dist = dist_matrix[0 * test_M_padded + i]
+			float min_dist = dist_matrix.x[0 * test_M_padded + i]
 			int best_label = 0
 			for c_i=1, c_i<self.K
-				float d = dist_matrix[c_i * test_M_padded + i]
+				float d = dist_matrix.x[c_i * test_M_padded + i]
 				if d < min_dist
 					min_dist = d
 					best_label = c_i
 			test_pred[i] = best_label
 
-		c_free(dist_matrix)
-		c_free(test_x_pack)
 		return test_pred
 
 
 	def float evaluate_accuracy(int[] true_labels, int[] pred_labels, int eval_M)
-		int[] cluster_to_label = c_malloc(self.K * 4)
+		var cluster_to_label = own int_b(self.K)
 		
 		for c_i=0, c_i<self.K
-			int[] label_counts = c_malloc(self.K * 4)
+			var label_counts = own int_b(self.K)
 			for l=0, l<self.K
-				label_counts[l] = 0
+				label_counts.x[l] = 0
 				
 			for i=0, i<eval_M
 				if pred_labels[i] == c_i
 					int t_label = true_labels[i]
-					label_counts[t_label] += 1
+					label_counts.x[t_label] += 1
 					
 			int best_label = 0
 			int max_count = -1
 			for l=0, l<self.K
-				if label_counts[l] > max_count
-					max_count = label_counts[l]
+				if label_counts.x[l] > max_count
+					max_count = label_counts.x[l]
 					best_label = l
 					
-			cluster_to_label[c_i] = best_label
-			c_free(label_counts)
+			cluster_to_label.x[c_i] = best_label
 			
 		int correct = 0
 		for i=0, i<eval_M
 			int p_cluster = pred_labels[i]
-			int mapped_label = cluster_to_label[p_cluster]
+			int mapped_label = cluster_to_label.x[p_cluster]
 			
 			if mapped_label == true_labels[i]
 				correct += 1
@@ -167,7 +179,6 @@ class Kmeans_SIMD
 		print("Correctly clustered: ", correct, " / ", eval_M)
 		print("Accuracy: ", accuracy * 100.0, "%")
 		
-		c_free(cluster_to_label)
 		return accuracy
 
 
@@ -195,21 +206,21 @@ class Kmeans_SIMD
 
 
 	def int kmeans_worker()
-		float[] dist_matrix = c_malloc(self.K * self.M_padded * 4)
+		var dist_matrix = own float_b(self.K * self.M_padded)
 		int changes = 0
 
 		# E-Step: SIMD distance calculation
 		for m_offset=0, m_offset<self.M_padded, 16
 			for c_i=0, c_i<self.K, 1
-				self.simd_kmeans_dist_1x16(dist_matrix, c_i, m_offset)
+				self.simd_kmeans_dist_1x16(dist_matrix.x, c_i, m_offset)
 
 		# E-Step: Label Assignment (Argmin)
 		for i=0, i<self.M, 1
-			float min_dist = dist_matrix[0 * self.M_padded + i]
+			float min_dist = dist_matrix.x[0 * self.M_padded + i]
 			int best_label = 0
 			
 			for c_i=1, c_i<self.K, 1
-				float d = dist_matrix[c_i * self.M_padded + i]
+				float d = dist_matrix.x[c_i * self.M_padded + i]
 				if d < min_dist
 					min_dist = d
 					best_label = c_i
@@ -218,37 +229,34 @@ class Kmeans_SIMD
 				self.labels[i] = best_label
 				changes += 1
 
-		c_free(dist_matrix)
 		return changes
 
 
 	def void update_centroids()
-		int[] counts = c_malloc(self.K * 4)
-		float[] new_sums = c_malloc(self.K * self.N * 4)
+		var counts = own int_b(self.K)
+		var new_sums = own float_b(self.K * self.N)
 
 		for c_i=0, c_i<self.K, 1
-			counts[c_i] = 0
+			counts.x[c_i] = 0
 			for f=0, f<self.N, 1
-				new_sums[c_i * self.N + f] = 0.0
+				new_sums.x[c_i * self.N + f] = 0.0
 
 		for i=0, i<self.M, 1
 			int c_i = self.labels[i]
-			counts[c_i] += 1
+			counts.x[c_i] += 1
 			for f=0, f<self.N, 1
-				new_sums[c_i * self.N + f] += self.buffer[i * self.N + f]
+				new_sums.x[c_i * self.N + f] += self.buffer[i * self.N + f]
 
 		for c_i=0, c_i<self.K, 1
-			if counts[c_i] > 0
+			if counts.x[c_i] > 0
 				for f=0, f<self.N, 1
-					self.centroids[c_i * self.N + f] = new_sums[c_i * self.N + f] / counts[c_i]
+					self.centroids[c_i * self.N + f] = new_sums.x[c_i * self.N + f] / counts.x[c_i]
 
-		c_free(counts)
-		c_free(new_sums)
 
 	def void init_centroids()
 		# inits centroids as random instances
 
-		int[] chosen = c_malloc(self.K * 4)
+		var chosen = own int_b(self.K)
 		
 		for c_i=0, c_i<self.K
 			bool unique = false
@@ -259,16 +267,15 @@ class Kmeans_SIMD
 				random_idx = randint(0, self.M - 1)
 				
 				for prev=0, prev<c_i
-					if chosen[prev] == random_idx
+					if chosen.x[prev] == random_idx
 						unique = false
 						break
 			
-			chosen[c_i] = random_idx
+			chosen.x[c_i] = random_idx
 			
 			for f=0, f<self.N, 1
 				self.centroids[c_i * self.N + f] = self.buffer[random_idx * self.N + f]
 				
-		c_free(chosen)
 
 
 	def void print_centroids()
@@ -283,11 +290,9 @@ class Kmeans_SIMD
 	def void train(int max_iters)
 		self.pad_buffer()
 		self.init_centroids()
-		#self.print_centroids()
 
 		for i=0, i<self.M, 1
 			self.labels[i] = -1
-
 
 
 		int iter = 0
@@ -304,18 +309,25 @@ class Kmeans_SIMD
 
 
 
-main
-	Iris_DF train_df = new Iris_DF("/root/Datasets/har/train/X_train.txt",
+def void kmeans_eval()
+	HAR_df train_df = new HAR_df("/root/Datasets/har/train/X_train.txt",
 						 "/root/Datasets/har/train/y_train.txt")
 	
 
-	Iris_DF test_df = new Iris_DF("/root/Datasets/har/test/X_test.txt",
+	HAR_df test_df = new HAR_df("/root/Datasets/har/test/X_test.txt",
 							"/root/Datasets/har/test/y_test.txt")
 
 
-	var kmeans = new Kmeans_SIMD(train_df.buffer, [train_df.M, train_df.N], 6)
+	start_timer()
+	var kmeans = own Kmeans_SIMD(train_df.buffer, [train_df.M, train_df.N], 6)
 	kmeans.train(100)
 	
 	int[] test_predictions = kmeans.predict(test_df.buffer, test_df.M)
 	
 	kmeans.evaluate_accuracy(test_df.labels, test_predictions, test_df.M)
+
+	end_timer()
+
+main
+	kmeans_eval()
+

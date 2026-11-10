@@ -3,7 +3,7 @@ FROM nvidia/cuda:12.3.2-cudnn9-devel-ubuntu22.04
 # Prevent interactive prompts during tzdata/llvm installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install base prerequisites + libpython3.10-dev for Python Interop
+# Install base prerequisites + libpython3.10-dev for Python
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     make \
@@ -24,21 +24,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     && rm -rf /var/lib/apt/lists/*
 
-# Install LLVM 21
-RUN wget https://apt.llvm.org/llvm.sh \
-    && chmod +x llvm.sh \
-    && ./llvm.sh 21 all \
-    && rm llvm.sh
-
-# Install compiler tools, libraries, and utilities
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    llvm \
-    clang \
-    zlib1g-dev \
-    libzstd-dev \
-    libeigen3-dev \
-    libopencv-dev \
-    && rm -rf /var/lib/apt/lists/*
 
 # Install Neve
 RUN wget -qO- https://github.com/NoSavedDATA/Neve/releases/download/neve-bin/install.sh | bash
@@ -74,13 +59,14 @@ RUN MOJO_LIB_DIR=$(find /opt/mojo-venv -type d -path "*/site-packages/mojo/lib" 
 # Make bash automatically execute fish
 RUN echo 'exec fish' >> /root/.bashrc
 
-# Download and extract the datasets
+# Download and extract Iris
 RUN mkdir -p /root/Datasets/iris && \
     cd /root/Datasets/iris && \
     wget https://archive.ics.uci.edu/static/public/53/iris.zip && \
     unzip iris.zip && \
     rm iris.zip
 
+# Download and extract HAR
 RUN mkdir -p /root/Datasets && \
     cd /root/Datasets && \
     wget https://archive.ics.uci.edu/static/public/240/human+activity+recognition+using+smartphones.zip && \
@@ -92,6 +78,8 @@ RUN mkdir -p /root/Datasets && \
     rm -rf __MACOSX && \
     mv "UCI HAR Dataset" har
 
-# Install the requested Neve packages
 RUN nsm i NoSavedDATA/frost && \
     nsm i NoSavedDATA/csv
+
+WORKDIR /frost_exp/Neve_benchmarks/kmeans
+
