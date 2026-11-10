@@ -1,0 +1,39 @@
+{
+  "schema_version": "1",
+  "benchmark": "iir",
+  "description": "Filtro digital IIR biquad de 2ª ordem em blocos de 256 amostras (Q14)",
+  "dataset": {
+    "name": "deterministic_iir_biquad_256samples",
+    "generator_coeffs": "[1105, 2210, 1105, -18727, 6763]",
+    "generator_input": "((i * 43 + 19) % 2001) - 1000",
+    "element_type": "int32_t",
+    "num_coeffs": 5,
+    "num_states": 4,
+    "num_samples": 256,
+    "scale": 16384,
+    "sha256_coeffs": "8e8653e247b786e618db41714b2907920d6c6160fb9a0cb3e305b7c63c939c8a",
+    "sha256_input": "0e8297241f60468af621b5926077c3f38f722e37b65fff0bca32480fb8cc9a33"
+  },
+  "inputs": {
+    "default_n": 256,
+    "dual_load_n": 128,
+    "empty_n": 0
+  },
+  "expected_results": {
+    "result": -10116,
+    "default_sum": -10116,
+    "dual_load_sum": -9166,
+    "empty_sum": 0
+  },
+  "tolerances": {
+    "exact_match_required": true
+  },
+  "protocol_version": "1.6",
+  "pointer_contract": {
+    "positive_length": "nonnull_readable_inputs_and_writable_output_state_required",
+    "empty": "NULL_inputs_allowed_no_reads",
+    "scope": "nonnull_live_required",
+    "verification": "harness_before_any_kernel; rejection never calls kernel",
+    "timed_kernel": "No NULL validation; shared precondition outside timing; len<=0 algorithm behavior retained"
+  }
+}

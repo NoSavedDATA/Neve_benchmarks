@@ -1,0 +1,7 @@
+def int array_sum_anonlang_run(int[] arr, int len)
+	if len <= 0
+		return 0
+	int acc = 0
+	for i=0, i<len
+		acc += arr[i]
+	return acc

@@ -1,0 +1,54 @@
+{
+  "schema_version": "1",
+  "benchmark": "linear_search",
+  "description": "Busca linear em buffer de inteiros de 32 bits com 5 cenarios determinÃ­sticos",
+  "dataset": {
+    "generator": "((i * 37 + 13) % 2001) - 1000",
+    "duplicate_insertion": "arr[750] = arr[250]",
+    "element_type": "int32_t",
+    "length": 1000,
+    "sha256": "84b7b79da07face6fe1b045b87e3e7919abc09bac5bdf1b83fe1c457e63305b9"
+  },
+  "inputs": {
+    "default_n": 1000,
+    "empty_n": 0,
+    "dual_load_n": 500
+  },
+  "expected_results": {
+    "scenarios": {
+      "head": 0,
+      "middle": 500,
+      "tail": 999,
+      "duplicate": 250,
+      "absent": -1
+    },
+    "scenarios_examined": {
+      "head": 1,
+      "middle": 501,
+      "tail": 1000,
+      "duplicate": 251,
+      "absent": 1000
+    },
+    "scenarios_targets": {
+      "head": -987,
+      "middle": -496,
+      "tail": -42,
+      "duplicate": 259,
+      "absent": 9999
+    },
+    "empty_result": -1
+  },
+  "tolerances": {
+    "exact_match_required": true
+  },
+  "version": "1.1",
+  "protocol_version": "1.4",
+  "pointer_contract": {
+    "positive_length": "nonnull_readable_inputs_required",
+    "empty": "NULL_inputs_allowed_no_reads",
+    "scope": "nonnull_live_required",
+    "minmax_output": "nonnull_two_writable_int32_required_even_empty",
+    "verification": "harness_before_any_kernel; rejection never calls kernel",
+    "timed_kernel": "No NULL validation; shared precondition outside timing; len<=0 algorithm behavior retained"
+  }
+}

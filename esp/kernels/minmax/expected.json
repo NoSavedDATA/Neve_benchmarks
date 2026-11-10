@@ -1,0 +1,33 @@
+{
+  "benchmark": "minmax",
+  "version": "1.0",
+  "dataset": {
+    "generator": "arr[i] = ((i * 37 + 13) % 2001) - 1000",
+    "element_type": "int32_t",
+    "standard_length": 1000,
+    "dual_load_length": 500,
+    "sha256_n1000_little_endian": "355b1514acf4a74baf1eb3eb02f3e5cf3fc30c0d51221faeddd0d04feaca6d8e"
+  },
+  "expected_results": {
+    "min": -999,
+    "max": 1000,
+    "dual_load": {
+      "min": -999,
+      "max": 999
+    },
+    "empty": {
+      "min": 0,
+      "max": 0,
+      "return_code": -1
+    }
+  },
+  "protocol_version": "1.4",
+  "pointer_contract": {
+    "positive_length": "nonnull_readable_inputs_required",
+    "empty": "NULL_inputs_allowed_no_reads",
+    "scope": "nonnull_live_required",
+    "minmax_output": "nonnull_two_writable_int32_required_even_empty",
+    "verification": "harness_before_any_kernel; rejection never calls kernel",
+    "timed_kernel": "No NULL validation; shared precondition outside timing; len<=0 algorithm behavior retained"
+  }
+}

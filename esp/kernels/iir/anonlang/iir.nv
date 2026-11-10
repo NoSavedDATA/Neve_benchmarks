@@ -1,0 +1,30 @@
+def int iir_anonlang_run(int[] coeffs, int[] input, int num_samples, int[] output, int[] state, int scale)
+	if num_samples <= 0
+		return 0
+	int b0 = coeffs[0]
+	int b1 = coeffs[1]
+	int b2 = coeffs[2]
+	int a1 = coeffs[3]
+	int a2 = coeffs[4]
+	int x1 = state[0]
+	int x2 = state[1]
+	int y1 = state[2]
+	int y2 = state[3]
+	for i=0, i<num_samples
+		int x0 = input[i]
+		int acc = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+		int y0 = 0
+		if scale > 1
+			y0 = acc // scale
+		else
+			y0 = acc
+		output[i] = y0
+		x2 = x1
+		x1 = x0
+		y2 = y1
+		y1 = y0
+	state[0] = x1
+	state[1] = x2
+	state[2] = y1
+	state[3] = y2
+	return 0

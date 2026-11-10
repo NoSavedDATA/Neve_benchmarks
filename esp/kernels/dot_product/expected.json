@@ -1,0 +1,42 @@
+{
+  "schema_version": "1",
+  "benchmark": "dot_product",
+  "description": "Produto escalar entre dois vetores de inteiros de 32 bits",
+  "datasets": {
+    "a": {
+      "generator": "((i * 37 + 13) % 2001) - 1000",
+      "element_type": "int32_t",
+      "length": 1000,
+      "sha256": "355b1514acf4a74baf1eb3eb02f3e5cf3fc30c0d51221faeddd0d04feaca6d8e"
+    },
+    "b": {
+      "generator": "((i * 41 + 19) % 2001) - 1000",
+      "element_type": "int32_t",
+      "length": 1000,
+      "sha256": "eae0a3694c193b1a95aa710b22bb71fd7b3b0339373a0fbcd24228852bc9eaed"
+    }
+  },
+  "inputs": {
+    "default_n": 1000,
+    "dual_load_n": 500,
+    "empty_n": 0
+  },
+  "expected_results": {
+    "result": 4655127,
+    "default_sum": 4655127,
+    "dual_load_sum": 7385091,
+    "empty_sum": 0
+  },
+  "tolerances": {
+    "exact_match_required": true
+  },
+  "protocol_version": "1.4",
+  "pointer_contract": {
+    "positive_length": "nonnull_readable_inputs_required",
+    "empty": "NULL_inputs_allowed_no_reads",
+    "scope": "nonnull_live_required",
+    "minmax_output": "nonnull_two_writable_int32_required_even_empty",
+    "verification": "harness_before_any_kernel; rejection never calls kernel",
+    "timed_kernel": "No NULL validation; shared precondition outside timing; len<=0 algorithm behavior retained"
+  }
+}

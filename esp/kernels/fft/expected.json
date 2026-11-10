@@ -1,0 +1,41 @@
+{
+  "schema_version": "1",
+  "benchmark": "fft",
+  "description": "Transformada Rápida de Fourier Radix-2 de 64 pontos complexos em precisão simples IEEE-754 (FPU Xtensa)",
+  "dataset": {
+    "name": "deterministic_fft_64points_dualtone",
+    "generator_signal": "cos(2*pi*3*n/64) + 0.5*cos(2*pi*10*n/64)",
+    "element_type": "float32",
+    "num_points": 64,
+    "sha256_bit_rev": "58df6eafc7b35de01c068be2e00dab05a2040c853e2faca89df87b0cc3d4365d",
+    "sha256_cos_table": "895f83c9236bc03ae8cda7a59f89de2d76d9e2ceea42d768ee1fcdee61bb93aa",
+    "sha256_sin_table": "2021ced73df9482a0c91db2656af84ad886d14dce17a476014a61cb11419c7ad",
+    "sha256_inp_real": "96d386657ff7166ee8ecd24086a3fdfd6df373151de1f861edbbc47ba369e8df"
+  },
+  "inputs": {
+    "default_n": 64,
+    "dual_load_n": 32,
+    "empty_n": 0
+  },
+  "expected_results": {
+    "result": 2560,
+    "default_sum": 2560,
+    "dual_load_sum": 640,
+    "empty_sum": 0,
+    "energy_float": 2560.0
+  },
+  "tolerances": {
+    "exact_match_required": false,
+    "energy_abs_tolerance": 0.25,
+    "component_abs_tolerance": 0.0001,
+    "component_rel_tolerance": 0.0001
+  },
+  "protocol_version": "1.6",
+  "pointer_contract": {
+    "positive_length": "nonnull_readable_and_writable_buffers_required",
+    "empty": "NULL_inputs_allowed_no_reads",
+    "scope": "nonnull_live_required",
+    "verification": "harness_before_any_kernel; rejection never calls kernel",
+    "timed_kernel": "No NULL validation; shared precondition outside timing; len<=0 algorithm behavior retained"
+  }
+}

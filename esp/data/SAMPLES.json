@@ -1,0 +1,770 @@
+[
+  {
+    "file": "samples/boot-001.csv",
+    "set": "policy",
+    "benchmark": "iir",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-002.csv",
+    "set": "policy",
+    "benchmark": "iir",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-003.csv",
+    "set": "policy",
+    "benchmark": "fft",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-004.csv",
+    "set": "policy",
+    "benchmark": "fft",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-005.csv",
+    "set": "policy",
+    "benchmark": "iir",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-006.csv",
+    "set": "policy",
+    "benchmark": "iir",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-007.csv",
+    "set": "policy",
+    "benchmark": "fft",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-008.csv",
+    "set": "policy",
+    "benchmark": "fft",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-009.csv",
+    "set": "policy",
+    "benchmark": "iir",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-010.csv",
+    "set": "policy",
+    "benchmark": "iir",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-011.csv",
+    "set": "policy",
+    "benchmark": "fft",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-012.csv",
+    "set": "policy",
+    "benchmark": "fft",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-013.csv",
+    "set": "policy",
+    "benchmark": "linear_search",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-014.csv",
+    "set": "policy",
+    "benchmark": "linear_search",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-015.csv",
+    "set": "policy",
+    "benchmark": "fir",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-016.csv",
+    "set": "policy",
+    "benchmark": "fir",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-017.csv",
+    "set": "policy",
+    "benchmark": "linear_search",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-018.csv",
+    "set": "policy",
+    "benchmark": "linear_search",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-019.csv",
+    "set": "policy",
+    "benchmark": "fir",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-020.csv",
+    "set": "policy",
+    "benchmark": "fir",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-021.csv",
+    "set": "policy",
+    "benchmark": "linear_search",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-022.csv",
+    "set": "policy",
+    "benchmark": "linear_search",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-023.csv",
+    "set": "policy",
+    "benchmark": "fir",
+    "optimization": "O2",
+    "variant": "candidate",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-024.csv",
+    "set": "policy",
+    "benchmark": "fir",
+    "optimization": "O2",
+    "variant": "reference",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-025.csv",
+    "set": "historical",
+    "benchmark": "array_sum",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-026.csv",
+    "set": "historical",
+    "benchmark": "array_sum",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-027.csv",
+    "set": "historical",
+    "benchmark": "array_sum",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-028.csv",
+    "set": "historical",
+    "benchmark": "array_sum",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-029.csv",
+    "set": "historical",
+    "benchmark": "array_sum",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-030.csv",
+    "set": "historical",
+    "benchmark": "array_sum",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-031.csv",
+    "set": "historical",
+    "benchmark": "array_sum",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-032.csv",
+    "set": "historical",
+    "benchmark": "array_sum",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-033.csv",
+    "set": "historical",
+    "benchmark": "array_sum",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-034.csv",
+    "set": "historical",
+    "benchmark": "dot_product",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-035.csv",
+    "set": "historical",
+    "benchmark": "dot_product",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-036.csv",
+    "set": "historical",
+    "benchmark": "dot_product",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-037.csv",
+    "set": "historical",
+    "benchmark": "dot_product",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-038.csv",
+    "set": "historical",
+    "benchmark": "dot_product",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-039.csv",
+    "set": "historical",
+    "benchmark": "dot_product",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-040.csv",
+    "set": "historical",
+    "benchmark": "dot_product",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-041.csv",
+    "set": "historical",
+    "benchmark": "dot_product",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-042.csv",
+    "set": "historical",
+    "benchmark": "dot_product",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-043.csv",
+    "set": "historical",
+    "benchmark": "minmax",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-044.csv",
+    "set": "historical",
+    "benchmark": "minmax",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-045.csv",
+    "set": "historical",
+    "benchmark": "minmax",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-046.csv",
+    "set": "historical",
+    "benchmark": "minmax",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-047.csv",
+    "set": "historical",
+    "benchmark": "minmax",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-048.csv",
+    "set": "historical",
+    "benchmark": "minmax",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-049.csv",
+    "set": "historical",
+    "benchmark": "minmax",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-050.csv",
+    "set": "historical",
+    "benchmark": "minmax",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-051.csv",
+    "set": "historical",
+    "benchmark": "minmax",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-052.csv",
+    "set": "historical",
+    "benchmark": "linear_search",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-053.csv",
+    "set": "historical",
+    "benchmark": "linear_search",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-054.csv",
+    "set": "historical",
+    "benchmark": "linear_search",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-055.csv",
+    "set": "historical",
+    "benchmark": "linear_search",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-056.csv",
+    "set": "historical",
+    "benchmark": "linear_search",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-057.csv",
+    "set": "historical",
+    "benchmark": "linear_search",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-058.csv",
+    "set": "historical",
+    "benchmark": "linear_search",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-059.csv",
+    "set": "historical",
+    "benchmark": "linear_search",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-060.csv",
+    "set": "historical",
+    "benchmark": "linear_search",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-061.csv",
+    "set": "historical",
+    "benchmark": "fft",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-062.csv",
+    "set": "historical",
+    "benchmark": "fft",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-063.csv",
+    "set": "historical",
+    "benchmark": "fft",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-064.csv",
+    "set": "historical",
+    "benchmark": "fft",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-065.csv",
+    "set": "historical",
+    "benchmark": "fft",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-066.csv",
+    "set": "historical",
+    "benchmark": "fft",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-067.csv",
+    "set": "historical",
+    "benchmark": "fft",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-068.csv",
+    "set": "historical",
+    "benchmark": "fft",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-069.csv",
+    "set": "historical",
+    "benchmark": "fft",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-070.csv",
+    "set": "historical",
+    "benchmark": "fir",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-071.csv",
+    "set": "historical",
+    "benchmark": "fir",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-072.csv",
+    "set": "historical",
+    "benchmark": "fir",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-073.csv",
+    "set": "historical",
+    "benchmark": "fir",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-074.csv",
+    "set": "historical",
+    "benchmark": "fir",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-075.csv",
+    "set": "historical",
+    "benchmark": "fir",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-076.csv",
+    "set": "historical",
+    "benchmark": "fir",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-077.csv",
+    "set": "historical",
+    "benchmark": "fir",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-078.csv",
+    "set": "historical",
+    "benchmark": "fir",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-079.csv",
+    "set": "historical",
+    "benchmark": "iir",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-080.csv",
+    "set": "historical",
+    "benchmark": "iir",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-081.csv",
+    "set": "historical",
+    "benchmark": "iir",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-082.csv",
+    "set": "historical",
+    "benchmark": "iir",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-083.csv",
+    "set": "historical",
+    "benchmark": "iir",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-084.csv",
+    "set": "historical",
+    "benchmark": "iir",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-085.csv",
+    "set": "historical",
+    "benchmark": "iir",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-086.csv",
+    "set": "historical",
+    "benchmark": "iir",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-087.csv",
+    "set": "historical",
+    "benchmark": "iir",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-088.csv",
+    "set": "historical",
+    "benchmark": "matrix_mult",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-089.csv",
+    "set": "historical",
+    "benchmark": "matrix_mult",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-090.csv",
+    "set": "historical",
+    "benchmark": "matrix_mult",
+    "optimization": "O0",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-091.csv",
+    "set": "historical",
+    "benchmark": "matrix_mult",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 1
+  },
+  {
+    "file": "samples/boot-092.csv",
+    "set": "historical",
+    "benchmark": "matrix_mult",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-093.csv",
+    "set": "historical",
+    "benchmark": "matrix_mult",
+    "optimization": "O2",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-094.csv",
+    "set": "historical",
+    "benchmark": "matrix_mult",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 3
+  },
+  {
+    "file": "samples/boot-095.csv",
+    "set": "historical",
+    "benchmark": "matrix_mult",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 2
+  },
+  {
+    "file": "samples/boot-096.csv",
+    "set": "historical",
+    "benchmark": "matrix_mult",
+    "optimization": "Os",
+    "variant": "historical",
+    "boot": 1
+  }
+]

@@ -1,0 +1,26 @@
+def int fir_anonlang_run(int[] coeffs, int num_taps, int[] input, int num_samples, int[] output, int[] state)
+	if num_samples <= 0
+		return 0
+	if num_taps <= 0
+		return 0
+	for i=0, i<num_samples
+		int acc = 0
+		for k=0, k<num_taps
+			int sample = 0
+			if i >= k
+				sample = input[i - k]
+			else
+				sample = state[num_taps - 1 - (k - i)]
+			acc += coeffs[k] * sample
+		output[i] = acc
+	int delay_len = num_taps - 1
+	if num_samples >= delay_len
+		for j=0, j<delay_len
+			state[j] = input[num_samples - delay_len + j]
+	else
+		int shift = delay_len - num_samples
+		for j=0, j<shift
+			state[j] = state[j + num_samples]
+		for j=0, j<num_samples
+			state[shift + j] = input[j]
+	return 0

@@ -1,0 +1,32 @@
+def int fft_anonlang_run(float[] real, float[] imag, float[] cos_table, float[] sin_table, int[] bit_rev, int n, int table_n)
+	if n <= 0
+		return 0
+	for i=0, i<n
+		int j = bit_rev[i]
+		if i < j
+			float tr = real[i]
+			real[i] = real[j]
+			real[j] = tr
+			float ti = imag[i]
+			imag[i] = imag[j]
+			imag[j] = ti
+	int len_half = 1
+	while len_half < n
+		int step = table_n // (2 * len_half)
+		int m = 2 * len_half
+		int k = 0
+		while k < n
+			for j=0, j<len_half
+				int u = k + j
+				int v = u + len_half
+				float wr = cos_table[j * step]
+				float wi = sin_table[j * step]
+				float tr = wr * real[v] - wi * imag[v]
+				float ti = wr * imag[v] + wi * real[v]
+				real[v] = real[u] - tr
+				imag[v] = imag[u] - ti
+				real[u] = real[u] + tr
+				imag[u] = imag[u] + ti
+			k += m
+		len_half = len_half * 2
+	return 0

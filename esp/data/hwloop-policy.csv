@@ -1,0 +1,9 @@
+benchmark,scenario,reference_cycles,candidate_cycles,change_percent,reference_us,candidate_us,C_control_delta,boots_per_variant
+fft,default,12998.0,12495.0,-3.869826127096476,55.0,53.0,0.0,3
+fir,default,103213.0,66051.0,-36.00515438946644,431.0,276.0,0.0,3
+iir,default,11482.0,8656.0,-24.6124368576903,49.0,37.0,0.0,3
+linear_search,absent,5030.5,5030.5,0.0,22.0,22.0,0.0,3
+linear_search,duplicate,1286.5,1286.5,0.0,6.0,7.0,0.0,3
+linear_search,head,37.0,37.0,0.0,1.0,1.0,0.0,3
+linear_search,middle,2536.5,2536.5,0.0,12.0,12.0,0.0,3
+linear_search,tail,5031.5,5031.5,0.0,22.0,22.0,0.0,3

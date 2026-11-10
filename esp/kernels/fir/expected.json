@@ -1,0 +1,38 @@
+{
+  "schema_version": "1",
+  "benchmark": "fir",
+  "description": "Filtro digital FIR de 16 coeficientes em blocos de 256 amostras inteiras",
+  "dataset": {
+    "name": "deterministic_fir_16taps_256samples",
+    "generator_coeffs": "(k <= 7 ? (k + 1) * 8 : (16 - k) * 8)",
+    "generator_input": "((i * 31 + 17) % 201) - 100",
+    "generator_initial_state": "((k * 13 + 5) % 41) - 20",
+    "element_type": "int32_t",
+    "num_taps": 16,
+    "num_samples": 256,
+    "sha256_coeffs": "c956077a8acc139bba50384027cac8791b47f17e7ee342a5bcb9541bab6e11af",
+    "sha256_input": "e915779d8fdaaf163f5c5c7e3ec0404601aaef1c224e5d00bb4af4d8d1c98cff"
+  },
+  "inputs": {
+    "default_n": 256,
+    "dual_load_n": 128,
+    "empty_n": 0
+  },
+  "expected_results": {
+    "result": -163776,
+    "default_sum": -163776,
+    "dual_load_sum": -126864,
+    "empty_sum": 0
+  },
+  "tolerances": {
+    "exact_match_required": true
+  },
+  "protocol_version": "1.6",
+  "pointer_contract": {
+    "positive_length": "nonnull_readable_inputs_and_writable_output_state_required",
+    "empty": "NULL_inputs_allowed_no_reads",
+    "scope": "nonnull_live_required",
+    "verification": "harness_before_any_kernel; rejection never calls kernel",
+    "timed_kernel": "No NULL validation; shared precondition outside timing; len<=0 algorithm behavior retained"
+  }
+}
