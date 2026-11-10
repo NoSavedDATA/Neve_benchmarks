@@ -14,14 +14,14 @@ This repository contains multiple bercharks separated by folder. Each folder has
 ---
 ## Syntax Highlight
 
-Want to inspect the code (neve_samples/all_in_one.nv)? You could either tell your IDE to use Python highlight for .nv,
+Want to inspect the code? You could either let your IDE to use Python highlight for .nv files,
 or install a highlight plugin for either Vim or VSCode
 
 #### vim
 
 For vim, intall plugins 'NosavedDATA/vim-neve' and 'NosavedDATA/vim-neve-dark'.
 
-Then use set 'colorscheme ghdark' in the config file.
+Then set 'colorscheme ghdark' in the config file.
 
 
 #### vscode
