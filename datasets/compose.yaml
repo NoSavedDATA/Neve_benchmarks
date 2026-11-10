@@ -1,0 +1,10 @@
+services:
+  benchmark:
+    image: neve-sql-benchmark:local
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["python3", "/project/run.py"]
+    volumes:
+      - ./resultados:/results

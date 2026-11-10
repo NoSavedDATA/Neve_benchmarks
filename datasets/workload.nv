@@ -1,0 +1,165 @@
+import db
+import batchbench
+
+def int scalar(any conexao, str sql)
+    any consulta = db_prepare(conexao, sql)
+    batch_check(db_valid(consulta), 1)
+    batch_check(db_step(consulta), 100)
+    int valor = db_column_int(consulta, 0)
+    batch_check(db_step(consulta), 101)
+    batch_check(db_finalize(consulta), 0)
+    return valor
+
+def int run_query(any conexao, str sql, int kind, int joined, str name, int n, int repetitions)
+    int rows = 0
+    int ids = 0
+    int quantities = 0
+    batch_start()
+    any consulta = db_prepare(conexao, sql)
+    batch_check(db_valid(consulta), 1)
+    for i=0, i<repetitions
+        if kind==0
+            batch_check(db_bind_int(consulta, 1, i%n), 0)
+        if kind==1
+            batch_check(db_bind_int(consulta, 1, i%100), 0)
+            batch_check(db_bind_int(consulta, 2, 25), 0)
+        if kind==2
+            int low = i%10*5
+            batch_check(db_bind_int(consulta, 1, low), 0)
+            batch_check(db_bind_int(consulta, 2, low+5), 0)
+        if kind==3
+            batch_check(db_bind_int(consulta, 1, i%100), 0)
+            batch_check(db_bind_int(consulta, 2, i%10), 0)
+            batch_check(db_bind_int(consulta, 3, 25), 0)
+        if kind==4
+            batch_check(db_bind_int(consulta, 1, i%10), 0)
+        int rc = db_step(consulta)
+        while rc==100
+            int id = db_column_int(consulta, 0)
+            int quantity = db_column_int(consulta, 1)
+            float price = db_column_float(consulta, 2)
+            str label = db_column_text(consulta, 3)
+            if price!=42.5
+                batch_check(0, 1)
+            if label!="benchmark-item-payload"
+                batch_check(0, 1)
+            if joined==1
+                batch_check(db_column_int(consulta, 4), id%10)
+            rows = rows + 1
+            ids = ids + id
+            quantities = quantities + quantity
+            rc = db_step(consulta)
+        batch_check(rc, 101)
+        batch_check(db_reset(consulta), 0)
+    batch_check(db_finalize(consulta), 0)
+    int elapsed = batch_elapsed_us()
+    print("CHECK ", name, "_rows ", rows)
+    print("CHECK ", name, "_ids ", ids)
+    print("CHECK ", name, "_quantity ", quantities)
+    return elapsed
+
+main
+    int n = batch_rows()
+    int repetitions = batch_queries()
+    str path = batch_path()
+    any conexao = db_open(path)
+    batch_check(db_valid(conexao), 1)
+    if path==":memory:"
+        batch_check(db_exec(conexao, "PRAGMA journal_mode=MEMORY; PRAGMA synchronous=OFF;"), 0)
+    else
+        batch_check(db_exec(conexao, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"), 0)
+    batch_check(db_exec(conexao, "PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY; PRAGMA cache_size=-4096; CREATE TABLE customers (id INTEGER PRIMARY KEY, region INTEGER NOT NULL, active INTEGER NOT NULL); CREATE INDEX idx_customers_region ON customers(region); CREATE TABLE items (id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers(id), quantity INTEGER NOT NULL, price REAL NOT NULL, label TEXT NOT NULL); CREATE INDEX idx_items_customer_qty ON items(customer_id, quantity);"), 0)
+    batch_check(db_exec(conexao, "BEGIN"), 0)
+    any parent = db_prepare(conexao, "INSERT INTO customers VALUES (?, ?, ?)")
+    batch_check(db_valid(parent), 1)
+    for i=0, i<100
+        batch_check(db_bind_int(parent, 1, i), 0)
+        batch_check(db_bind_int(parent, 2, i%10), 0)
+        int active = 0
+        if i%2==0
+            active = 1
+        batch_check(db_bind_int(parent, 3, active), 0)
+        batch_check(db_step(parent), 101)
+        batch_check(db_reset(parent), 0)
+    batch_check(db_finalize(parent), 0)
+    batch_check(db_exec(conexao, "COMMIT"), 0)
+
+    batch_start()
+    batch_check(db_exec(conexao, "BEGIN"), 0)
+    any inserir = db_prepare(conexao, "INSERT INTO items (id, customer_id, quantity, price, label) VALUES (?, ?, ?, ?, ?)")
+    batch_check(db_valid(inserir), 1)
+    for i=0, i<n
+        batch_check(db_bind_int(inserir, 1, i), 0)
+        batch_check(db_bind_int(inserir, 2, i%100), 0)
+        batch_check(db_bind_int(inserir, 3, i%50), 0)
+        batch_check(db_bind_float(inserir, 4, 42.5), 0)
+        batch_check(db_bind_text(inserir, 5, "benchmark-item-payload"), 0)
+        batch_check(db_step(inserir), 101)
+        batch_check(db_changes(conexao), 1)
+        batch_check(db_reset(inserir), 0)
+    batch_check(db_finalize(inserir), 0)
+    batch_check(db_exec(conexao, "COMMIT"), 0)
+    int insert_us = batch_elapsed_us()
+    int insert_count = scalar(conexao, "SELECT COUNT(*) FROM items")
+    int insert_quantity = scalar(conexao, "SELECT SUM(quantity) FROM items")
+    int select_pk_us = run_query(conexao, "SELECT id, quantity, price, label FROM items WHERE id = ?", 0, 0, "select_pk", n, repetitions)
+    int where_indexed_us = run_query(conexao, "SELECT id, quantity, price, label FROM items WHERE customer_id = ? AND quantity >= ? ORDER BY id", 1, 0, "where_indexed", n, repetitions)
+    int where_scan_us = run_query(conexao, "SELECT id, quantity, price, label FROM items WHERE quantity >= ? AND quantity < ? ORDER BY id", 2, 0, "where_scan", n, repetitions)
+    int join_pk_us = run_query(conexao, "SELECT i.id, i.quantity, i.price, i.label, c.region FROM items AS i INNER JOIN customers AS c ON c.id = i.customer_id WHERE i.id = ? AND c.active = 1", 0, 1, "join_pk", n, repetitions)
+    int join_indexed_us = run_query(conexao, "SELECT i.id, i.quantity, i.price, i.label, c.region FROM items AS i INNER JOIN customers AS c ON c.id = i.customer_id WHERE i.customer_id = ? AND c.region = ? AND i.quantity >= ? ORDER BY i.id", 3, 1, "join_indexed", n, repetitions)
+    int join_scan_us = run_query(conexao, "SELECT i.id, i.quantity, i.price, i.label, c.region FROM items AS i INNER JOIN customers AS c ON c.id = i.customer_id WHERE (i.quantity + c.region) % 10 = ? ORDER BY i.id", 4, 1, "join_scan", n, repetitions)
+
+    batch_start()
+    batch_check(db_exec(conexao, "BEGIN"), 0)
+    any editar = db_prepare(conexao, "UPDATE items SET quantity = ?, price = ?, label = ? WHERE id = ?")
+    batch_check(db_valid(editar), 1)
+    for i=0, i<n
+        batch_check(db_bind_int(editar, 1, i%50+1), 0)
+        batch_check(db_bind_float(editar, 2, 99.5), 0)
+        batch_check(db_bind_text(editar, 3, "benchmark-updated-payload"), 0)
+        batch_check(db_bind_int(editar, 4, i), 0)
+        batch_check(db_step(editar), 101)
+        batch_check(db_changes(conexao), 1)
+        batch_check(db_reset(editar), 0)
+    batch_check(db_finalize(editar), 0)
+    batch_check(db_exec(conexao, "COMMIT"), 0)
+    int update_us = batch_elapsed_us()
+    int update_quantity = scalar(conexao, "SELECT SUM(quantity) FROM items")
+    int update_exact = scalar(conexao, "SELECT COUNT(*) FROM items WHERE quantity = (id % 50) + 1 AND price = 99.5 AND label = 'benchmark-updated-payload'")
+
+    batch_start()
+    batch_check(db_exec(conexao, "BEGIN"), 0)
+    any deletar = db_prepare(conexao, "DELETE FROM items WHERE id = ?")
+    batch_check(db_valid(deletar), 1)
+    for i=0, i<n
+        batch_check(db_bind_int(deletar, 1, i), 0)
+        batch_check(db_step(deletar), 101)
+        batch_check(db_changes(conexao), 1)
+        batch_check(db_reset(deletar), 0)
+    batch_check(db_finalize(deletar), 0)
+    batch_check(db_exec(conexao, "COMMIT"), 0)
+    int delete_us = batch_elapsed_us()
+    int delete_count = scalar(conexao, "SELECT COUNT(*) FROM items")
+    batch_check(db_close(conexao), 0)
+    int work_us = insert_us + update_us + delete_us
+    work_us = work_us + select_pk_us
+    work_us = work_us + where_indexed_us
+    work_us = work_us + where_scan_us
+    work_us = work_us + join_pk_us
+    work_us = work_us + join_indexed_us
+    work_us = work_us + join_scan_us
+    print("METRIC insert_us ", insert_us)
+    print("METRIC update_us ", update_us)
+    print("METRIC delete_us ", delete_us)
+    print("METRIC select_pk_us ", select_pk_us)
+    print("METRIC where_indexed_us ", where_indexed_us)
+    print("METRIC where_scan_us ", where_scan_us)
+    print("METRIC join_pk_us ", join_pk_us)
+    print("METRIC join_indexed_us ", join_indexed_us)
+    print("METRIC join_scan_us ", join_scan_us)
+    print("METRIC work_us ", work_us)
+    print("CHECK insert_count ", insert_count)
+    print("CHECK insert_quantity ", insert_quantity)
+    print("CHECK update_quantity ", update_quantity)
+    print("CHECK update_exact ", update_exact)
+    print("CHECK delete_count ", delete_count)
