@@ -1,6 +1,7 @@
 import frost
 import networks
 
+
 class cfg
 	int bs, num_workers, train_steps
 	array<int> inp_dim
@@ -8,7 +9,9 @@ class cfg
 		self.bs = 32
 		self.num_workers = 3
 		self.inp_dim = [3,32,32]
-		self.train_steps = 2000
+		self.train_steps = 20000
+
+
 
 class Dataset
     int batch_size, yield_ptr, _len, num_workers, epoch, steps
@@ -29,6 +32,7 @@ class Dataset
         self._len = self.files.size()
         self.steps = self._len // $cfg.bs
         self.shuf()
+
 
 		self.x = new tensor_cpu([num_workers, $cfg.bs], $cfg.inp_dim)
 		self.y = new tensor_cpu([num_workers, $cfg.bs], [1])
@@ -97,15 +101,18 @@ class Dataset
 		var x = self.x.load(w)
 		var y = self.y.load(w)
 
-		x = x.view([$cfg.bs, 3, 32, 32])
+		x = x.reshape([$cfg.bs, 3, 32, 32])
 
-        return x, y
+        return x,y
+
+
+
 
 class ResidualModule
 	BatchNorm2d bn1, bn2, bn_skip
 	Conv2d c1, c2, c_skip
 	#ConvScratch c1, c2, c_skip
-	bool has_skip
+	bool has_skip, training
     ctor(int m, int n, int stride)
 		self.c1 = new Conv2d(m,n, 3,stride,1, "conv")
 		#self.c1 = new ConvScratch(m,n,3,stride,1,"conv")
@@ -118,28 +125,41 @@ class ResidualModule
 			#self.c_skip = new ConvScratch(m,n, 1,stride,0, "conv") 
 			self.c_skip = new Conv2d(m,n, 1,stride,0, "conv") 
 			self.bn_skip = new BatchNorm2d(n, 0.00001, 0.1)
+		self.training = true
 
 	def void eval()
+		self.c1.training = false
+		self.c2.training = false
 		self.bn1.training = false
 		self.bn2.training = false
+		self.c1.w.shall_prop = false
+		self.c2.w.shall_prop = false
+		self.bn1.weight.shall_prop = false
+		self.bn2.weight.shall_prop = false
 		if self.has_skip
 			self.bn_skip.training = false
+			self.c_skip.w.shall_prop = false
+			self.bn_skip.weight.shall_prop = false
     
     def gpu_tensor forward(gpu_tensor x)
         var z = x
-        x = self.c1.forward(x)
+
+        x = self.c1.infer(x)
 		x = self.bn1.forward(x)
         x = relu(x)
 
-        x = self.c2.forward(x)
+        x = self.c2.infer(x)
 		x = self.bn2.forward(x)
 
 		if self.has_skip
-			z = self.c_skip.forward(z)
+			z = self.c_skip.infer(z)
 			z = self.bn_skip.forward(z)
-		x += z
+			
+		x = x + z
 		x = relu(x)
         return x
+
+
 
 class ResidualBlock
 	ResidualModule b1, b2, b3
@@ -162,6 +182,10 @@ class ResidualBlock
 		x = self.b3.forward(x)
 		return x
 
+
+
+
+
 class ResNet18
 	Conv2d c1
 	#array<ResidualBlock> blocks
@@ -169,6 +193,7 @@ class ResNet18
 	ResidualBlock b1, b2, b3
 	AvgPool2d pool
 	Linear l1
+	gpu_tensor w
 	ctor()
 		self.c1 = new Conv2d(3,16, 3,1,1, "conv")
 		self.start_bn = new BatchNorm2d(16, 0.00001, 0.1)
@@ -181,18 +206,26 @@ class ResNet18
 		self.pool = new AvgPool2d(8,1,0)
 
 		self.l1 = new Linear(64, 10, "xavu")
+		self.w = new gpu_tensor([10,64], "xavu")
+		self.w.as_weight()
 	
 	def void eval()
+		self.c1.w.shall_prop = false
+		self.start_bn.weight.shall_prop = false
 		self.start_bn.training = false
 		self.b1.eval()
 		self.b2.eval()
 		self.b3.eval()
+		self.l1.eval()
+		self.w.shall_prop=false
 		
 	def gpu_tensor forward(gpu_tensor x)
+		#x.print_dims()
+
 		int bs = x.dims[0]
-		x = self.c1.forward(x)
+		x = self.c1.infer(x)
 		x = self.start_bn.forward(x)
-		x = relu(x)
+		#print("post start_bn")
 
 		x = self.b1.forward(x)
 		x = self.b2.forward(x)
@@ -200,17 +233,23 @@ class ResNet18
 
 		x = self.pool.forward(x)
 
-		x = x.view([bs,-1])
+		x = x.reshape_own([bs,-1])
 		x = self.l1.forward(x)
+
 		return x
 
+
 def void train(ResNet18 model)
-	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/cifar/train/*.png")
+	print("train")
+
+	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/resnet_cifar/cifar/train/*.png")
+
 
 	#AdamW optim(0.0001, 0.9, 0.98)
 	AdamW optim(0.0001, 0.9, 0.999)
 	int steps = $cfg.train_steps
 
+	print("train start")
 	finish
 		asyncs $cfg.num_workers ds.worker()
 
@@ -221,18 +260,20 @@ def void train(ResNet18 model)
 			var y_hat = model.forward(a)
 			ce_loss(y_hat, b)
 
-			$backprop.backward()
+			&backprop.backward()
 			optim.step()
+			#_quit_()
 		ds.terminate_workers()
 
 
 def void eval(ResNet18 model)
+	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/resnet_cifar/cifar/test/*.png")
 
-	Dataset ds($cfg.num_workers, "/frost_exp/Neve_benchmarks/cifar/test/*.png")
 
-	var acc = new gpu_tensor([1],"zeros")
+	var acc = own gpu_tensor([1],"zeros_cache")
 	model.eval()
-	$backprop.on = false
+	&backprop.on = false
+
 
 	int steps = ds.steps
 	finish
@@ -245,14 +286,19 @@ def void eval(ResNet18 model)
 			var y_hat = model.forward(a)
 			var eq_mask = y_hat.argmax()==b
 			var local_acc = eq_mask.mean()
-			acc += local_acc
+			acc = acc + local_acc
 
-			tarena_reset()
+			# clear pool allocated, in this case,
+			# the preprocessed inputs only
+			tarena_reset() 
 		ds.terminate_workers()
 
 	acc /= steps
 	print("Accuracy")
 	acc.print()
+
+
+
 
 main
 	start_timer()
