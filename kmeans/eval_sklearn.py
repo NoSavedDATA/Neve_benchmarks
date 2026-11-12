@@ -1,4 +1,5 @@
 import numpy as np
+import time
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
 
@@ -29,8 +30,12 @@ if __name__ == "__main__":
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
+    st = time.time()
     kmeans = KMeans(n_clusters=6, n_init='auto')
     kmeans.fit(X_train_scaled)
     
     test_predictions = kmeans.predict(X_test_scaled)
     evaluate_accuracy(y_test, test_predictions)
+
+
+    print(f"kmeans time: {time.time()-st}")

@@ -1,0 +1,756 @@
+class cfg
+	int max_lines, vocab_size, eval_lines
+	ctor()
+		self.max_lines = 1000000
+		self.vocab_size = 32000
+		# self.max_lines = 100000
+		# self.vocab_size = 15000
+		self.eval_lines = 2000
+
+
+class StrBumpArena
+	int offset, size
+	array<str> arenas
+	str cur_arena
+
+	ctor(int size)
+		self.size = size
+		self.offset = 0
+		self.new_arena()
+
+	def void new_arena()
+		# print("NEW ARENA ", self.size)
+		str arena = c_malloc_str(self.size)
+		self.arenas.append(arena)
+		self.cur_arena = arena
+		
+	def str alloc(int size)
+		# print("alloc ", self.offset, "/", size, "|", self.size)
+		if size > self.size
+			str huge_block = c_malloc_str(size)
+			self.arenas.append(huge_block)
+			return huge_block offby 0
+		if self.offset + size > self.size
+			self.new_arena()
+			self.offset = 0
+		str ret = {self.cur_arena offby self.offset, size}
+		self.offset += size
+		return ret
+
+class FreqNode
+	int freq
+	i64 key
+	ctor(int freq, i64 key)
+		self.freq = freq
+		self.key = key
+	def int print()
+		print(self.freq, ", ", self.key)
+
+class BinaryHeap
+	array<int> freqs
+	array<i64> keys
+	ctor()
+		0
+		
+	def int push(int freq, i64 key)
+		self.freqs.append(freq)
+		self.keys.append(key)
+		int i = self.freqs.size()-1
+
+		while i>0
+			int parent = (i-1)//2
+			if self.freqs[parent] >= self.freqs[i]
+				break
+
+			int tmp_f = self.freqs[parent]
+			self.freqs[parent] = self.freqs[i]
+			self.freqs[i] = tmp_f
+			
+			i64 tmp_k = self.keys[parent]
+			self.keys[parent] = self.keys[i]
+			self.keys[i] = tmp_k
+			
+			i = parent
+
+	def void sift_down(int i, int size)
+		while true
+			int left = i*2 + 1
+			int right = i*2 + 2
+			int largest = i
+
+			if left < size
+				if self.freqs[left] > self.freqs[largest]
+					largest = left
+			if right < size
+				if self.freqs[right] > self.freqs[largest]
+					largest = right
+
+			if largest == i
+				break
+
+			int tmp_f = self.freqs[i]
+			self.freqs[i] = self.freqs[largest]
+			self.freqs[largest] = tmp_f
+			
+			i64 tmp_k = self.keys[i]
+			self.keys[i] = self.keys[largest]
+			self.keys[largest] = tmp_k
+
+			i = largest
+
+	def void heapify()
+		int size = self.freqs.size()
+		int i = (size // 2) - 1
+		while i >= 0
+			self.sift_down(i, size)
+			i = i - 1
+
+	def tuple<int, i64> pop_max()
+		int size = self.freqs.size()
+		int top_freq = self.freqs[0]
+		i64 top_key = self.keys[0]
+
+		if size == 1
+			self.freqs.pop()
+			self.keys.pop()
+			return top_freq, top_key
+
+		self.freqs[0] = self.freqs[size-1]
+		self.keys[0] = self.keys[size-1]
+		self.freqs.pop()
+		self.keys.pop()
+
+		self.sift_down(0, size - 1)
+		return top_freq, top_key
+
+	def int size()
+		return self.freqs.size()
+		
+	def void clear()
+		self.freqs.clear()
+		self.keys.clear()
+
+class Token
+	int id
+	i64 key
+	array<int> toks 
+	array<char> cv
+	ctor(int id, i64 key)
+		self.id=id
+		self.key=key
+
+	def tuple<int,int> get_lr()
+		int l = self.key |> 32
+		int r = self.key
+		return l, r
+
+	def int print()
+		int l, r
+		l, r = self.get_lr()
+		print(self.id, ": ", l, "-", r)
+
+
+class BPE
+	int fd, col, lines, carry_over
+	char[16384] buf
+	i64 bytes_read
+	int padding, word_end, bos, eos, last_tok, vocab_size
+	str cur_buffer, fname
+	map<i64, int> pair_heads
+	map<str,int> word_freqs
+	map<i64, int> freqs
+	map<i64,Token> tokens
+	map<int,Token> id_to_token
+	
+	array<int> node_tok
+	array<int> node_prev
+	array<int> node_next
+	array<int> node_chain_freq
+	array<int> node_prev_pair
+	array<int> node_next_pair
+	
+	array<int> chain_freq
+	char sep
+	StrBumpArena str_bump_arena
+	BinaryHeap bh
+	ctor(str fname, int vocab_size)
+		self.fd = c_open(fname)
+		self.col = 0
+		self.bytes_read = -1
+		self.fname = fname
+		self.sep = ' '
+		self.padding = 1
+		self.bos = 0
+		self.carry_over = 0
+		self.eos = 2
+		self.word_end = 3
+		self.last_tok = 256
+		self.vocab_size = vocab_size
+		self.bh = new BinaryHeap()
+		str buffer = c_malloc_str(self.bytes_read)
+		self.cur_buffer = buffer
+		self.str_bump_arena = new StrBumpArena(16777216)
+
+		
+	def i64 get_buff()
+		i64 newly_read = c_read(self.fd, self.buf offby self.carry_over, 16384-self.carry_over)
+		self.bytes_read = newly_read + self.carry_over
+		if self.bytes_read == 0
+			return 0
+
+		c_memcpy(self.cur_buffer, self.buf offby 0, self.bytes_read)
+		return newly_read
+	
+
+	def float print()
+		int msize = self.word_freqs.size()
+		var keys = self.word_freqs.keys()
+		var values = self.word_freqs.values()
+		for i=0, i<msize
+			print(keys[i], " -- ", values[i])
+		print("size: ", msize)
+
+	def float process_delimiter(int offset, int pos, int size)
+		char delimiter = self.buf[pos]
+		if size >= 2
+			str _view = {self.buf offby offset, size}
+
+			if !self.word_freqs.has(_view)
+				str permanent_str = self.str_bump_arena.alloc(size)
+				c_memcpy(permanent_str, self.buf offby offset, size)
+				self.word_freqs[permanent_str] = 1
+			else
+				self.word_freqs[_view] += 1
+
+		if delimiter == '\n'        
+			self.lines += 1
+
+	def int get_masks(int pos)
+		vec<i8,32> bytes = simd_load(self.buf offby pos, i8, 32)
+		
+		vec<i8,32> v_space = vec_make(' ', 32)
+		vec<i8,32> v_tab   = vec_make('\t', 32)
+		vec<i8,32> v_cr    = vec_make('\r', 32)
+		vec<i8,32> v_lf    = vec_make('\n', 32)
+		
+		vec<i8,32> v_mask = (bytes == v_space) or (bytes == v_tab) or (bytes == v_cr) or (bytes == v_lf)
+		
+		return v_mask.movemask()
+		
+
+	def float train()
+		while self.bytes_read!=0
+			i64 newly_read = self.get_buff()
+			
+			if self.bytes_read == 0
+				break
+
+			int mask = 0, pos = 0, last_pos = 0
+			
+			while pos + 32 <= self.bytes_read
+				mask = self.get_masks(pos)
+				
+				if mask==0
+					pos = pos + 32
+					continue
+
+				int offset = pos
+				while mask!=0
+					int idx = ctz(mask)
+					pos = offset + idx
+
+					self.process_delimiter(last_pos, pos, pos-last_pos)
+
+					last_pos = pos + 1
+					mask = swap_bit(mask, idx)
+				
+				pos = offset + 32
+
+			if newly_read == 0
+				while last_pos < self.bytes_read
+					int next_pos = last_pos
+					
+					while next_pos < self.bytes_read
+						char c = self.buf[next_pos]
+						if c == self.sep or c == '\n'
+							break
+						next_pos = next_pos + 1
+					
+					self.process_delimiter(last_pos, next_pos, next_pos - last_pos)
+					last_pos = next_pos + 1
+				break
+
+			if self.lines%2000==0
+				print("Preprocess line ", self.lines)
+
+			if self.lines>$cfg.max_lines
+				break
+
+	def int rebuild_bh()
+		int fsize = self.freqs.size()
+		self.bh.clear()
+		self.bh.freqs.reserve(fsize)
+		self.bh.keys.reserve(fsize)
+		
+		var keys = self.freqs.keys()
+		var values = self.freqs.values()
+		
+		for i=0, i<fsize
+			if values[i] > 2
+				self.bh.freqs.append(values[i])
+				self.bh.keys.append(keys[i])
+				
+		self.bh.heapify()
+
+	def int update_top(int freq, i64 key)
+		if freq<=2
+			return 0
+		if self.bh.size() > self.freqs.size()*6
+			self.rebuild_bh()
+		else
+			self.bh.push(freq, key)
+
+	def int inc_freq(int b, int p, int freq)
+		i64 key = (i64(b) <| 32) | p
+		int cur = 0
+		if self.freqs.has(key)
+			cur = self.freqs[key]
+		
+		int new_freq = cur + freq
+		self.freqs[key] = new_freq
+		self.update_top(new_freq, key)
+
+	def int init_inc_freq(int b, int p, int freq)
+		i64 key = (i64(b) <| 32) | p
+		int cur = 0
+		if self.freqs.has(key)
+			cur = self.freqs[key]
+		self.freqs[key] = cur + freq
+
+	def int get_freqs()
+		memp_start()
+		print("freq")
+		int msize = self.word_freqs.size()-1
+		var keys = self.word_freqs.keys()
+		var values = self.word_freqs.values()
+
+		int total_nodes = 0
+		for i=0, i<msize
+			if values[i] > 2
+				total_nodes = total_nodes + keys[i].size() + 1
+				
+		self.node_tok.reserve(total_nodes)
+		self.node_prev.reserve(total_nodes)
+		self.node_next.reserve(total_nodes)
+		self.node_chain_freq.reserve(total_nodes)
+		self.node_prev_pair.reserve(total_nodes)
+		self.node_next_pair.reserve(total_nodes)
+		self.chain_freq.reserve(msize)
+
+		for i=0, i<msize
+			int freq = values[i]
+			if freq > 2
+				str word = keys[i]
+				int wsize = word.size()
+				
+				int prev = -1
+				int chain_freq_idx = self.chain_freq.size()
+				self.chain_freq.append(freq)
+
+				for j=0, j < wsize
+					int b = to_int(word[j])
+					
+					if j < wsize - 1
+						self.init_inc_freq(b, to_int(word[j+1]), freq)
+					else
+						self.init_inc_freq(b, self.word_end, freq)
+
+					int idx = self.node_tok.size()
+					self.node_tok.append(b)
+					self.node_prev.append(prev)
+					self.node_next.append(-1)
+					self.node_chain_freq.append(chain_freq_idx)
+					self.node_prev_pair.append(-1)
+					self.node_next_pair.append(-1)
+
+					if prev != -1
+						self.node_next[prev] = idx
+						i64 k = (i64(self.node_tok[prev]) <| 32) | b
+						self.add_pair(prev, k)
+					
+					prev = idx
+
+				int end_idx = self.node_tok.size()
+				self.node_tok.append(self.word_end)
+				self.node_prev.append(prev)
+				self.node_next.append(-1)
+				self.node_chain_freq.append(chain_freq_idx)
+				self.node_prev_pair.append(-1)
+				self.node_next_pair.append(-1)
+				
+				if prev != -1
+					self.node_next[prev] = end_idx
+					i64 k = (i64(self.node_tok[prev]) <| 32) | self.word_end
+					self.add_pair(prev, k)
+
+		var fkeys = self.freqs.keys()
+		var fvalues = self.freqs.values()
+		int fsize = self.freqs.size()
+		
+		self.bh.freqs.reserve(fsize * 4) 
+		self.bh.keys.reserve(fsize * 4)
+		
+		for i=0, i<fsize
+			if fvalues[i] > 2
+				self.bh.freqs.append(fvalues[i])
+				self.bh.keys.append(fkeys[i])
+		self.bh.heapify()
+
+		self.word_freqs.clear()
+		print("Merge")
+		self.merge_freqs()
+
+	def int add_pair(int node_id, i64 key)
+		int head = -1
+		if self.pair_heads.has(key)
+			head = self.pair_heads[key]
+		
+		self.node_next_pair[node_id] = head
+		self.node_prev_pair[node_id] = -1
+		
+		if head != -1
+			self.node_prev_pair[head] = node_id
+			
+		self.pair_heads[key] = node_id
+
+	def int remove_pair(int node_id, i64 key)
+		int p = self.node_prev_pair[node_id]
+		int n = self.node_next_pair[node_id]
+		
+		if p != -1
+			self.node_next_pair[p] = n
+		else
+			self.pair_heads[key] = n
+		
+		if n != -1
+			self.node_prev_pair[n] = p
+			
+		self.node_prev_pair[node_id] = -1
+		self.node_next_pair[node_id] = -1
+			
+	
+	def int tok_add(Token tok, int c)
+		if self.id_to_token.has(c)
+			var nested = self.id_to_token[c]
+			int l, r
+			l, r = nested.get_lr()
+			self.tok_add(tok, l)
+			self.tok_add(tok, r)
+		else
+			tok.toks.append(c)
+			tok.cv.append(to_char(c))
+
+	def array<int> set_token_chars(Token tok)
+		int l, r
+		l, r = tok.get_lr()
+		self.tok_add(tok, l)
+		self.tok_add(tok, r)
+		return tok.toks
+
+	def Token pop_heap()
+		while true
+			if self.bh.freqs.size()<=1
+				break
+			int freq
+			i64 key=0
+			freq, key = self.bh.pop_max()
+			
+			if self.tokens.has(key)
+				continue
+			if freq == self.freqs[key]
+				Token tok = new Token(self.last_tok, key)
+				self.tokens[key] = tok
+				self.set_token_chars(tok)
+				self.id_to_token[self.last_tok] = tok
+				return tok
+	
+	def int dec_freq(int l, int r, int freq)
+		i64 key = (i64(l) <| 32) | r
+		if self.freqs.has(key)
+			self.freqs[key] = self.freqs[key] - freq
+
+	def int dec_node_freq(int left_id, int freq)
+		int p = self.node_prev[left_id]
+		int n = self.node_next[left_id]
+		int l_tok = self.node_tok[left_id]
+
+		if p >= 0
+			self.dec_freq(self.node_tok[p], l_tok, freq)
+		if n < 0
+			return 0
+			
+		int r_tok = self.node_tok[n]
+		self.dec_freq(l_tok, r_tok, freq)
+		
+		int nn = self.node_next[n]
+		if nn >= 0
+			self.dec_freq(r_tok, self.node_tok[nn], freq)
+
+
+	def int merge_freqs()
+		while self.last_tok<self.vocab_size
+			var t = self.pop_heap()
+			if self.bh.freqs.size()<=1
+				break
+			i64 key = t.key
+			int l = key |> 32
+			int r = key 
+			
+			if !self.pair_heads.has(key)
+				continue
+
+			int curr_pair = self.pair_heads[key]
+			
+			while curr_pair != -1
+				int node_id = curr_pair
+				curr_pair = self.node_next_pair[node_id] 
+				
+				int n = self.node_next[node_id]
+				if n < 0
+					continue
+
+				int l_tok = self.node_tok[node_id]
+				int r_tok = self.node_tok[n]
+
+				if l_tok != l
+					continue
+
+				if r_tok != r 
+					continue
+
+				int freq = self.chain_freq[self.node_chain_freq[node_id]]
+				int p = self.node_prev[node_id]
+
+				if p >= 0
+					i64 prev_key = (i64(self.node_tok[p]) <| 32) | l_tok
+					self.remove_pair(p, prev_key)
+					
+				int nn = self.node_next[n]
+				if nn >= 0
+					i64 next_key = (i64(r_tok) <| 32) | self.node_tok[nn]
+					self.remove_pair(n, next_key)
+
+				self.dec_node_freq(node_id, freq)
+
+				self.node_next[node_id] = nn
+				self.node_next[n] = -2
+				self.node_tok[node_id] = self.last_tok
+
+				if p >= 0
+					self.inc_freq(self.node_tok[p], self.last_tok, freq)
+					i64 new_key = (i64(self.node_tok[p]) <| 32) | self.last_tok
+					self.add_pair(p, new_key)
+
+				if nn >= 0
+					self.node_prev[nn] = node_id
+					self.inc_freq(self.last_tok, self.node_tok[nn], freq)
+					i64 new_key = (i64(self.last_tok) <| 32) | self.node_tok[nn]
+					self.add_pair(node_id, new_key)
+			
+			self.pair_heads[key] = -1
+			self.last_tok += 1
+
+		memp_end()
+
+	def array<int> encode(str msg)
+		array<int> toks
+
+		for i=0, i<msg.size()
+			int c = to_int(msg[i])
+			if c==32
+				toks.append(3)
+				continue
+			toks.append(c)
+
+		if toks[-1]!=3
+			toks.append(3)
+
+		BinaryHeap bh = new BinaryHeap()
+		
+		# Local SoA for encoding
+		array<int> enc_tok
+		array<int> enc_prev
+		array<int> enc_next
+		
+		map<i64,array<int>> to_idx
+		
+		for i=0, i<toks.size()
+			int prev = i - 1
+
+			if i+1<toks.size()
+				i64 key = (i64(toks[i]) <| 32) | toks[i+1]
+				if self.tokens.has(key)
+					int priority = self.vocab_size - self.tokens[key].id
+					bh.push(priority, key)
+					to_idx[key].append(i)
+
+			int idx = enc_tok.size()
+			enc_tok.append(toks[i])
+			enc_prev.append(prev)
+			enc_next.append(-1)
+			
+			if prev != -1
+				enc_next[prev] = idx
+				
+		while bh.size()>0
+			int freq
+			i64 key=0
+			freq, key = bh.pop_max()
+			int l = key |> 32
+			int r = key
+			Token token = self.tokens[key]
+			var v = to_idx[key]
+			
+			for idx in v
+				int cur_tok = enc_tok[idx]
+				if cur_tok != l
+					continue
+					
+				int left_id = token.id
+				int n = enc_next[idx]
+				if n < 0
+					continue
+					
+				int r_tok = enc_tok[n]
+				if r_tok != r
+					continue
+
+				enc_tok[idx] = left_id
+				int nn = enc_next[n]
+				enc_next[idx] = nn
+				
+				if nn >= 0
+					enc_prev[nn] = idx
+					i64 right_key = (i64(left_id) <| 32) | enc_tok[nn]
+					if self.tokens.has(right_key)
+						int priority = self.vocab_size - self.tokens[right_key].id
+						bh.push(priority, right_key)
+						to_idx[right_key].append(idx)
+						
+				enc_tok[n] = -2
+				enc_next[n] = -2
+				enc_prev[n] = -2
+
+				int p = enc_prev[idx]
+				if p < 0
+					continue
+					
+				int p_tok = enc_tok[p]
+				if p_tok < 0
+					continue
+
+				i64 left_key = (i64(p_tok) <| 32) | left_id
+				if self.tokens.has(left_key)
+					int priority = self.vocab_size - self.tokens[left_key].id
+					bh.push(priority, left_key)
+					to_idx[left_key].append(p)
+		
+		array<int> encoded_toks
+		int cur = 0
+		while true
+			encoded_toks.append(enc_tok[cur])
+			int n = enc_next[cur]
+			if n < 0
+				break
+			cur = n
+			
+		return encoded_toks
+
+	def array<char> decode(array<int> toks)
+		int w=0
+		array<char> word
+		while w<toks.size()
+			int id = toks[w]
+			if self.id_to_token.has(id)
+				var tok_chars = self.id_to_token[id].toks
+				for c in tok_chars
+					word.append(to_char(c))
+			else
+				word.append(to_char(id))
+			w += 1
+
+		return word
+
+
+def int debug_bpe(BPE bpe, str msg)
+	var toks = bpe.encode(msg)
+	toks.print()
+	print(toks.size())
+	var word = bpe.decode(toks)
+	print()
+	word.print()
+	print(word.size())
+	print()
+
+
+def tuple<int, int> eval_bpe(BPE bpe, str msg)
+	var toks = bpe.encode(msg)
+	array<char> word
+	int toks_size, word_size
+	return toks.size(), msg.size()
+
+
+
+def float Build_vocab(BPE bpe)
+	bpe.get_freqs()
+
+	print("DEBUG")
+	debug_bpe(bpe, "hello world, this is a tokenizer test!")
+	debug_bpe(bpe, "I like drinking coffee in rainy days")
+	debug_bpe(bpe, "This is the premise")
+
+
+def float bpe_evaluation(BPE bpe)
+	File f = new File("/Datasets/openwebtxt/openwebtext_val.txt")
+	print("Begin evaluation")
+
+	# _quit_()
+	int i=0
+	int all_chars = 0, all_toks
+	while f.opened()
+		i+=1
+		if i>$cfg.eval_lines
+			break
+		str line = f.read()
+
+		all_chars += line.size()
+
+		var tokens = bpe.encode(line)
+
+		all_toks += tokens.size()
+	float ratio = all_toks/all_chars
+	print("tok/char: ", ratio)
+	return 0
+		
+
+main
+	#join_gc()
+	start_timer()
+	BPE bpe = new BPE("/Datasets/openwebtxt/openwebtext.txt", $cfg.vocab_size)
+	bpe.train()
+	print("preprocess time")
+	end_timer()
+
+	start_timer()
+	Build_vocab(bpe)
+	print("train time:")
+	end_timer()
+
+	start_timer()
+	bpe_evaluation(bpe)
+
+	print("eval time:")
+	end_timer()
+
+
+

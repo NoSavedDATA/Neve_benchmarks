@@ -15,4 +15,3 @@ main
 		flop_mean+=flops
 
 	print("flop avg ", flop_mean/20)
-
