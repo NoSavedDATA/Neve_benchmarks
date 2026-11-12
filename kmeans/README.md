@@ -16,6 +16,11 @@ Neve evaluation
 neve kmeans_simd.nv
 ```
 
+Neve GPU evaluation
+```bash
+neve kmeans_gpu.nv
+```
+
 
 Python evaluation
 ```bash
