@@ -1,0 +1,222 @@
+# bench_neve.nv — audio lib benchmark (Neve side).
+# Output: lines "neve,<op>,<signal>,<threads>,<n>,<ms_mean>,<ms_min>" (printl
+# emits no \n; merge.py slices the blob at each "neve," occurrence).
+# Timer: audio_tic()/audio_toc() (the lib's own interval timer, float ms since the
+# last tic; start/end_timer print noise to stdout). Warm-up: 3 calls outside the
+# measurement loop. Short ops run in batches of 10 inside the timing window, the
+# Python side times single calls: only ms_mean is comparable between the two.
+
+import audio
+
+def float mean_flush(float tsum, float tmin, str op, str sig, int iters)
+	float mean = tsum / iters
+	printl("neve,", op, ",", sig, ",1T,", iters, ",", mean, ",", tmin)
+	return mean
+
+
+def float op_load(str path, int iters, str op, str sig, str out_path)
+	int w = 0
+	while w < 3
+		audio_load(path)
+		w = w + 1
+	float tsum = 0.0
+	float tmin = 1000000.0
+	int i = 0
+	while i < iters
+		audio_tic()
+		int k = 0
+		while k < 10
+			audio_load(path)
+			k = k + 1
+		float ms = audio_toc() / 10
+		if ms < tmin
+			tmin = ms
+		tsum = tsum + ms
+		i = i + 1
+	AudioData last = audio_load(path)
+	audio_save(out_path, last.wf, last.sample_rate, "f32")
+	return mean_flush(tsum, tmin, op, sig, iters)
+
+
+def float op_save(tensor wf, int sr, int iters, str op, str sig, str path)
+	int w = 0
+	while w < 3
+		audio_save(path, wf, sr, "s16")
+		w = w + 1
+	float tsum = 0.0
+	float tmin = 1000000.0
+	int i = 0
+	while i < iters
+		audio_tic()
+		int k = 0
+		while k < 10
+			audio_save(path, wf, sr, "s16")
+			k = k + 1
+		float ms = audio_toc() / 10
+		if ms < tmin
+			tmin = ms
+		tsum = tsum + ms
+		i = i + 1
+	return mean_flush(tsum, tmin, op, sig, iters)
+
+
+def float op_spec(tensor wf, int iters, str op, str sig, str out_path)
+	int w = 0
+	while w < 3
+		tensor warm = audio_spectrogram(wf, 1024, 256, 1024, 2.0)
+		w = w + 1
+	float tsum = 0.0
+	float tmin = 1000000.0
+	int i = 0
+	while i < iters
+		audio_tic()
+		tensor sp = audio_spectrogram(wf, 1024, 256, 1024, 2.0)
+		float ms = audio_toc()
+		if ms < tmin
+			tmin = ms
+		tsum = tsum + ms
+		i = i + 1
+	tensor last = audio_spectrogram(wf, 1024, 256, 1024, 2.0)
+	audio_save(out_path, last, 16000, "f32")
+	return mean_flush(tsum, tmin, op, sig, iters)
+
+
+def float op_mel(tensor wf, int sr, int iters, str op, str sig, str out_path)
+	int w = 0
+	while w < 3
+		tensor warm = audio_melspectrogram(wf, sr, 1024, 256, 128, 0.0, 0.0)
+		w = w + 1
+	float tsum = 0.0
+	float tmin = 1000000.0
+	int i = 0
+	while i < iters
+		audio_tic()
+		tensor m = audio_melspectrogram(wf, sr, 1024, 256, 128, 0.0, 0.0)
+		float ms = audio_toc()
+		if ms < tmin
+			tmin = ms
+		tsum = tsum + ms
+		i = i + 1
+	tensor last = audio_melspectrogram(wf, sr, 1024, 256, 128, 0.0, 0.0)
+	audio_save(out_path, last, 16000, "f32")
+	return mean_flush(tsum, tmin, op, sig, iters)
+
+
+def float op_mfcc(tensor wf, int sr, int iters, str op, str sig, str out_path)
+	int w = 0
+	while w < 3
+		tensor warm = audio_mfcc(wf, sr, 20, 1024, 256, 128)
+		w = w + 1
+	float tsum = 0.0
+	float tmin = 1000000.0
+	int i = 0
+	while i < iters
+		audio_tic()
+		tensor m = audio_mfcc(wf, sr, 20, 1024, 256, 128)
+		float ms = audio_toc()
+		if ms < tmin
+			tmin = ms
+		tsum = tsum + ms
+		i = i + 1
+	tensor last = audio_mfcc(wf, sr, 20, 1024, 256, 128)
+	audio_save(out_path, last, 16000, "f32")
+	return mean_flush(tsum, tmin, op, sig, iters)
+
+
+def float op_resample_b(tensor wf, int orig_sr, int new_sr, str method, int iters, int batch, str op, str sig, str out_path)
+	int w = 0
+	while w < 3
+		tensor warm = audio_resample(wf, orig_sr, new_sr, method)
+		w = w + 1
+	float tsum = 0.0
+	float tmin = 1000000.0
+	int i = 0
+	while i < iters
+		audio_tic()
+		int k = 0
+		while k < batch
+			tensor r = audio_resample(wf, orig_sr, new_sr, method)
+			k = k + 1
+		float ms = audio_toc() / batch
+		if ms < tmin
+			tmin = ms
+		tsum = tsum + ms
+		i = i + 1
+	tensor last = audio_resample(wf, orig_sr, new_sr, method)
+	audio_save(out_path, last, new_sr, "f32")
+	return mean_flush(tsum, tmin, op, sig, iters)
+
+
+def float op_resample(tensor wf, int orig_sr, int new_sr, str method, int iters, str op, str sig, str out_path)
+	return op_resample_b(wf, orig_sr, new_sr, method, iters, 1, op, sig, out_path)
+
+
+def float op_mulaw(tensor wf, int iters, str op, str sig, str out_path)
+	int w = 0
+	while w < 3
+		tensor warm = audio_mulaw_encode(wf)
+		w = w + 1
+	float tsum = 0.0
+	float tmin = 1000000.0
+	int i = 0
+	while i < iters
+		audio_tic()
+		int k = 0
+		while k < 10
+			tensor c = audio_mulaw_encode(wf)
+			k = k + 1
+		float ms = audio_toc() / 10
+		if ms < tmin
+			tmin = ms
+		tsum = tsum + ms
+		i = i + 1
+	tensor last = audio_mulaw_encode(wf)
+	audio_save(out_path, last, 16000, "f32")
+	return mean_flush(tsum, tmin, op, sig, iters)
+
+
+def float op_stretch(tensor wf, float rate, int iters, str op, str sig, str out_path)
+	int w = 0
+	while w < 3
+		tensor warm = audio_time_stretch(wf, rate)
+		w = w + 1
+	float tsum = 0.0
+	float tmin = 1000000.0
+	int i = 0
+	while i < iters
+		audio_tic()
+		tensor s = audio_time_stretch(wf, rate)
+		float ms = audio_toc()
+		if ms < tmin
+			tmin = ms
+		tsum = tsum + ms
+		i = i + 1
+	tensor last = audio_time_stretch(wf, rate)
+	audio_save(out_path, last, 16000, "f32")
+	return mean_flush(tsum, tmin, op, sig, iters)
+
+
+main
+	AudioData a10 = audio_load("data/sig_10s_16k_s16.wav")
+	AudioData a60 = audio_load("data/sig_60s_16k_s16.wav")
+
+	op_load("data/sig_1s_16k_s16.wav", 50, "load_s16", "1s_16k", "results/_unused_load1.wav")
+	op_load("data/sig_10s_16k_s16.wav", 50, "load_s16", "10s_16k", "results/out_neve_load_s16.wav")
+	op_load("data/sig_10s_16k_f32.wav", 50, "load_f32", "10s_16k", "results/out_neve_load_f32.wav")
+	op_load("data/sig_60s_16k_s16.wav", 20, "load_s16", "60s_16k", "results/_unused_load60.wav")
+	op_load("data/sig_10s_22k_stereo_f32.wav", 50, "load_f32", "10s_22k_stereo", "results/out_neve_load_f32_stereo.wav")
+	op_save(a10.wf, 16000, 50, "save_s16", "10s_16k", "results/_bench_save.wav")
+
+	op_spec(a10.wf, 20, "spectrogram", "10s_16k", "results/out_neve_spectrogram.wav")
+	op_spec(a60.wf, 10, "spectrogram", "60s_16k", "results/_unused.wav")
+	op_mel(a10.wf, 16000, 20, "mel", "10s_16k", "results/out_neve_mel.wav")
+	op_mel(a60.wf, 16000, 10, "mel", "60s_16k", "results/_unused2.wav")
+	op_mfcc(a10.wf, 16000, 20, "mfcc", "10s_16k", "results/out_neve_mfcc.wav")
+
+	op_resample(a10.wf, 16000, 8000, "sinc", 20, "resample_sinc", "10s_16k", "results/out_neve_resample8k.wav")
+	op_resample_b(a10.wf, 16000, 8000, "linear", 20, 10, "resample_linear", "10s_16k", "results/_unused3.wav")
+	op_resample(a10.wf, 16000, 24000, "sinc", 20, "resample_sinc", "10s_16k_24k", "results/out_neve_resample24k.wav")
+
+	op_mulaw(a10.wf, 100, "mulaw_encode", "10s_16k", "results/out_neve_mulaw.wav")
+	op_stretch(a10.wf, 1.5, 10, "time_stretch", "10s_16k", "results/out_neve_stretch.wav")
+	printl("== bench_neve end ==")
