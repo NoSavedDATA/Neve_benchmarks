@@ -1,0 +1,315 @@
+# kmeans_gpu.nv -- GPU k-means in the Neve language.
+#
+# Dataset: UCI HAR, K=6.
+# Algorithm: Lloyd. Initial centroids = K unique random samples; stops when
+# no label changes (or after max_iters); an empty cluster keeps its centroid.
+
+
+import csv
+import frost
+
+class float_b
+	float[] x
+	ctor(int size)
+		self.x = c_malloc(size*4)
+	def void disown()
+		c_free(self.x)
+
+
+class int_b
+	int[] x
+	ctor(int size)
+		self.x = c_malloc(size*4)
+	def void disown()
+		c_free(self.x)
+
+
+# HAR loader, copied from Iris_DF in the original file
+class HAR_DF
+	float[] buffer
+	int[] labels
+	Csv df, label_df
+	int M, N
+	map<str,int> labels_map
+	ctor(str file_name, str eval_fname)
+		Csv df = own Csv(file_name, ' ')
+		Csv label_df = own Csv(eval_fname, ' ')
+		self.df = df
+		self.label_df = label_df
+
+		self.M = df.elem[0].size()-1 # skip csv header
+		self.N = df.elem.size()-1 # minus label
+
+		print("M ", self.M, ", N: ", self.N)
+
+		self.preprocess_har(arange_int(0,self.N), label_df)
+
+
+	def void preprocess_har(array<int> tgt_cols, Csv label_df)
+
+		int rows = self.M
+		int cols = tgt_cols.size()
+		self.buffer = c_malloc(rows*cols*4)
+		self.labels = c_malloc(rows*4)
+
+		int j=-1
+		for col in tgt_cols
+			j+=1
+			array<str> num_col = self.df.elem[col]
+			float sum = 0
+			for i=0, i<rows
+				#print(i, " | ", num_col.size())
+				float x = num_col[i].float()
+				self.buffer[i*self.N+j] = x
+				sum += x
+
+			float avg = sum / rows
+
+			float std_sum = 0
+			for i=0, i<rows
+				float x = self.buffer[i*self.N+j]
+				std_sum += pow(x-avg, 2)
+
+			float std = sqrt(std_sum/rows)
+			#print(col, " -- avg: ", avg, " std: ", std)
+
+
+			for i=0, i<rows
+				self.buffer[i*self.N+j] = (self.buffer[i*self.N+j]-avg)/std
+
+
+
+		for i=0, i<rows
+			str label = label_df.elem[0][i]
+			self.labels[i] = label.int()-1
+
+
+
+# E-step: 1 thread per sample. launch [M/|256] [256]
+kernel void kmeans_assign_k(float[] labels, float[] x, float[] c, int M, int N, int K)
+	int i = bx*256 + tx
+	if i>=M
+		return
+	float min_dist = 0
+	int best = 0
+	[0..K] k
+		float d = 0
+		[0..N] f
+			float diff = x[f*M + i] - c[k*N + f]
+			d += diff*diff
+		if k==0 or d<min_dist
+			min_dist = d
+			best = k
+	labels[i] = best
+
+
+# M-step: 1 warp per (cluster, feature) pair. launch [(K*N)/|8] [256]
+# Each warp scans all M samples and reduces with warpSum.
+kernel void kmeans_update_k(float[] c, float[] x, float[] labels, int M, int N, int K)
+	int pair = bx*8 + warp
+	int k = pair // N
+	int f = pair % N
+	float sum = 0
+	float count = 0
+	[0..M/|32] j
+		int i = j*32 + lane
+		float v = 0
+		float one = 0
+		if pair<K*N and i<M
+			if labels[i]==k
+				v = x[f*M + i]
+				one = 1
+		sum += warpSum(v)
+		count += warpSum(one)
+	if pair<K*N and count>0
+		c[k*N + f] = sum / count
+
+
+class Kmeans_GPU
+	float[] buffer, centroids, g_x, g_c, g_labels
+	int[] labels
+	int M, N, K
+
+	ctor(float[] buffer, array<int> dims, int K)
+		self.buffer = buffer
+		self.M = dims[0]
+		self.N = dims[1]
+		self.K = K
+
+		self.centroids = c_malloc(self.K * self.N * 4)
+		self.labels = c_malloc(self.M * 4)
+
+		# transpose to column-major and upload to the GPU
+		var x_col = own float_b(self.M * self.N)
+		for i=0, i<self.M
+			for j=0, j<self.N
+				x_col.x[j * self.M + i] = buffer[i * self.N + j]
+
+		self.g_x = cucache_alloc_float(self.M * self.N)
+		c_cudaMemcpy(self.g_x, x_col.x, self.M * self.N * 4, 1)
+		self.g_c = cucache_alloc_float(self.K * self.N)
+		self.g_labels = cucache_alloc_float(self.M)
+
+
+	# Downloads n float labels from the GPU, converts them to int into out and
+	# returns how many changed.
+	def int fetch_labels(float[] g_lab, int[] out, int n)
+		var h_lab = own float_b(n)
+		c_cudaMemcpy(h_lab.x, g_lab, n*4, 2)
+
+		int changes = 0
+		for i=0, i<n
+			float lab = h_lab.x[i]
+			int best_label = 0
+			for c_i=0, c_i<self.K
+				if lab == c_i
+					best_label = c_i
+			if out[i] != best_label
+				out[i] = best_label
+				changes += 1
+
+		return changes
+
+
+	def int[] predict(float[] test_buffer, int test_M)
+		var test_col = own float_b(test_M * self.N)
+		for i=0, i<test_M
+			for j=0, j<self.N
+				test_col.x[j * test_M + i] = test_buffer[i * self.N + j]
+
+		float[] g_test = cucache_alloc_float(test_M * self.N)
+		c_cudaMemcpy(g_test, test_col.x, test_M * self.N * 4, 1)
+		float[] g_pred = cucache_alloc_float(test_M)
+
+		launch [test_M/|256] [256] kmeans_assign_k(g_pred offby 0, g_test offby 0,
+								self.g_c offby 0, test_M, self.N, self.K)
+
+		int[] test_pred = c_malloc(test_M * 4)
+		for i=0, i<test_M
+			test_pred[i] = -1
+		self.fetch_labels(g_pred, test_pred, test_M)
+
+		g_test.cucachefree(test_M * self.N * 4)
+		g_pred.cucachefree(test_M * 4)
+
+		return test_pred
+
+
+	def float evaluate_accuracy(int[] true_labels, int[] pred_labels, int eval_M)
+		var cluster_to_label = own int_b(self.K)
+
+		for c_i=0, c_i<self.K
+			var label_counts = own int_b(self.K)
+			for l=0, l<self.K
+				label_counts.x[l] = 0
+
+			for i=0, i<eval_M
+				if pred_labels[i] == c_i
+					int t_label = true_labels[i]
+					label_counts.x[t_label] += 1
+
+			int best_label = 0
+			int max_count = -1
+			for l=0, l<self.K
+				if label_counts.x[l] > max_count
+					max_count = label_counts.x[l]
+					best_label = l
+
+			cluster_to_label.x[c_i] = best_label
+
+		int correct = 0
+		for i=0, i<eval_M
+			int p_cluster = pred_labels[i]
+			int mapped_label = cluster_to_label.x[p_cluster]
+
+			if mapped_label == true_labels[i]
+				correct += 1
+
+		float accuracy = correct / eval_M
+
+		print("Correctly clustered: ", correct, " / ", eval_M)
+		print("Accuracy: ", accuracy * 100.0, "%")
+
+		return accuracy
+
+
+	def void init_centroids()
+		# K unique random samples become the initial centroids (on the CPU)
+
+		var chosen = own int_b(self.K)
+
+		for c_i=0, c_i<self.K
+			bool unique = false
+			int random_idx = 0
+
+			while not unique
+				unique = true
+				random_idx = randint(0, self.M - 1)
+
+				for prev=0, prev<c_i
+					if chosen.x[prev] == random_idx
+						unique = false
+						break
+
+			chosen.x[c_i] = random_idx
+
+			for f=0, f<self.N, 1
+				self.centroids[c_i * self.N + f] = self.buffer[random_idx * self.N + f]
+
+
+	# Runs k-means starting from self.centroids. Returns the number of iterations.
+	# Kept separate from train() so it can start from known centroids.
+	def int fit(int max_iters)
+		c_cudaMemcpy(self.g_c, self.centroids, self.K * self.N * 4, 1)
+
+		for i=0, i<self.M, 1
+			self.labels[i] = -1
+
+		int pairs = self.K * self.N
+
+		int iter = 0
+		while iter < max_iters
+			iter += 1
+
+			launch [self.M/|256] [256] kmeans_assign_k(self.g_labels offby 0, self.g_x offby 0,
+									self.g_c offby 0, self.M, self.N, self.K)
+
+			int changes = self.fetch_labels(self.g_labels, self.labels, self.M)
+
+			if changes == 0
+				break
+
+			launch [pairs/|8] [256] kmeans_update_k(self.g_c offby 0, self.g_x offby 0,
+									self.g_labels offby 0, self.M, self.N, self.K)
+
+		# final centroids back to the host
+		c_cudaMemcpy(self.centroids, self.g_c, self.K * self.N * 4, 2)
+
+		return iter
+
+
+	def void train(int max_iters)
+		self.init_centroids()
+		int iter = self.fit(max_iters)
+		print("K-Means converged in ", iter, " iterations.")
+
+
+def void kmeans_eval()
+	HAR_DF train_df = own HAR_DF("/Datasets/har/train/X_train.txt",
+						 "/Datasets/har/train/y_train.txt")
+
+	HAR_DF test_df = own HAR_DF("/Datasets/har/test/X_test.txt",
+							"/Datasets/har/test/y_test.txt")
+
+	start_timer()
+	var kmeans = own Kmeans_GPU(train_df.buffer, [train_df.M, train_df.N], 6)
+	kmeans.train(100)
+
+	int[] test_predictions = kmeans.predict(test_df.buffer, test_df.M)
+
+	kmeans.evaluate_accuracy(test_df.labels, test_predictions, test_df.M)
+
+	end_timer()
+
+main
+	kmeans_eval()
