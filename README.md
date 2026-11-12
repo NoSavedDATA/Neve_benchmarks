@@ -4,6 +4,7 @@ This repository contains multiple bercharks separated by folder. Each folder has
 
 #### Folders & Experiments:
 
+- bpe: Byte-Pair Encoding algorithm for text compression.
 - datasets: interop SQLite interface for database operations.
 - esp: embedded system ESP32-S3 computation.
 - gemm: CPU tensor matrix multiplication.
